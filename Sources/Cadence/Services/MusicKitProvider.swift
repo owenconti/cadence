@@ -76,6 +76,15 @@ final class MusicKitProvider: MusicProvider {
         )
     }
 
+    func recentlyPlayedPlaylistNames() async -> [String] {
+        // Recently played items carry catalog IDs, not library ones, so
+        // they're matched to library playlists by name.
+        let items = (try? await MusicRecentlyPlayedContainerRequest().response().items) ?? []
+        return items.compactMap { item in
+            if case .playlist(let playlist) = item { playlist.name } else { nil }
+        }
+    }
+
     func album(for track: TrackItem) async -> AlbumItem? {
         // A song in a playlist often isn't on an album saved to the library;
         // its album then comes back as a stub with no tracks. Use the library

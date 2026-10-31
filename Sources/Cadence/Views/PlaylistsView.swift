@@ -3,13 +3,7 @@ import SwiftUI
 struct PlaylistsView: View {
     @Environment(AppModel.self) private var model
     @State private var filter = ""
-    @State private var sort: Sort = .recent
-
-    enum Sort: String, CaseIterable {
-        case recent = "Recent"
-        case name = "A–Z"
-        case size = "Largest"
-    }
+    @State private var sort: PlaylistSort = .recent
 
     var body: some View {
         let playlists = visible
@@ -21,7 +15,7 @@ struct PlaylistsView: View {
                 }
                 Spacer()
                 Picker("Sort", selection: $sort) {
-                    ForEach(Sort.allCases, id: \.self) { Text($0.rawValue) }
+                    ForEach(PlaylistSort.allCases, id: \.self) { Text($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -36,7 +30,7 @@ struct PlaylistsView: View {
                     ForEach(playlists) { playlist in
                         MediaCard(
                             title: playlist.name,
-                            subtitle: playlist.trackCount.map { "\($0) songs" } ?? (playlist.curator ?? "Playlist"),
+                            subtitle: model.size(of: playlist).map { "\($0) songs" } ?? (playlist.curator ?? "Playlist"),
                             artwork: playlist.artwork,
                             width: nil
                         ) {
@@ -53,12 +47,7 @@ struct PlaylistsView: View {
     }
 
     private var visible: [PlaylistItem] {
-        let filtered = filter.isEmpty ? model.playlists : model.playlists.filter { $0.name.localizedCaseInsensitiveContains(filter) }
-        switch sort {
-        case .recent: return filtered
-        case .name: return filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        case .size: return filtered.sorted { ($0.trackCount ?? 0) > ($1.trackCount ?? 0) }
-        }
+        model.sortedPlaylists(by: sort, filter: filter)
     }
 }
 

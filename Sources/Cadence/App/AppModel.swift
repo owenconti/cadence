@@ -37,6 +37,16 @@ final class AppModel {
     var section: SidebarSection = .discover
     private(set) var stack: [Route] = []
     var playlists: [PlaylistItem] = []
+    /// Song counts by playlist ID. Apple Music doesn't include them, so
+    /// they're counted in the background and kept for the next launch.
+    private(set) var playlistSizes = UserDefaults.standard.dictionary(forKey: AppModel.sizesKey) as? [String: Int] ?? [:]
+    /// When each playlist was last played from Cadence. Apple Music gives
+    /// library playlists no dates.
+    private(set) var playlistPlayedAt = UserDefaults.standard.dictionary(forKey: AppModel.playedKey) as? [String: Date] ?? [:]
+    /// Names of playlists Apple Music lists as recently played, newest first.
+    private(set) var recentPlaylistNames: [String] = []
+    @ObservationIgnored private var countingSizes = false
+    @ObservationIgnored private var countedSizes = false
     /// Discover's feed, loaded behind the splash and kept until the library reloads.
     var discoverFeed: DiscoverFeed?
     var access: AccessState = .idle
@@ -48,6 +58,8 @@ final class AppModel {
     @ObservationIgnored private var handoff: Handoff?
     @ObservationIgnored private var preloading = false
     private static let sourceKey = "cadence.source"
+    private static let sizesKey = "cadence.playlistSizes"
+    private static let playedKey = "cadence.playlistPlayedAt"
     private static let log = Logger(subsystem: "com.owenconti.cadence", category: "app")
 
     var route: Route { stack.last ?? section.route }
@@ -216,6 +228,7 @@ final class AppModel {
             }
             if self.discoverFeed == nil { self.discoverFeed = await feed }
             self.preloading = false
+            await self.loadPlaylistOrder()
         }
         let deadline = Date().addingTimeInterval(8)
         while preloading, Date() < deadline {
@@ -280,6 +293,71 @@ final class AppModel {
 
     func refreshPlaylists() async {
         playlists = (try? await provider.playlists()) ?? []
+        await loadPlaylistOrder()
+    }
+
+    /// What the Recent and Largest sorts need.
+    private func loadPlaylistOrder() async {
+        recentPlaylistNames = await provider.recentlyPlayedPlaylistNames()
+        await countPlaylistSizes()
+    }
+
+    /// The Playlists page's order.
+    func sortedPlaylists(by sort: PlaylistSort, filter: String = "") -> [PlaylistItem] {
+        let filtered = filter.isEmpty ? playlists : playlists.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+        let byName = filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        switch sort {
+        case .recent:
+            // Played in Cadence (newest first), then what Apple Music lists as
+            // recently played, then the library's own order.
+            func rank(_ p: PlaylistItem) -> (Date, Int) {
+                (playlistPlayedAt[p.id] ?? .distantPast, recentPlaylistNames.firstIndex(of: p.name) ?? recentPlaylistNames.count)
+            }
+            return filtered.enumerated().sorted { a, b in
+                let (ra, rb) = (rank(a.element), rank(b.element))
+                if ra.0 != rb.0 { return ra.0 > rb.0 }
+                if ra.1 != rb.1 { return ra.1 < rb.1 }
+                return a.offset < b.offset
+            }.map(\.element)
+        case .name:
+            return byName
+        case .size:
+            // Biggest first; any still being counted go last.
+            return byName.enumerated().sorted { a, b in
+                let (sa, sb) = (size(of: a.element) ?? -1, size(of: b.element) ?? -1)
+                return sa != sb ? sa > sb : a.offset < b.offset
+            }.map(\.element)
+        }
+    }
+
+    func size(of playlist: PlaylistItem) -> Int? {
+        playlist.trackCount ?? playlistSizes[playlist.id]
+    }
+
+    /// Counts the songs in playlists that don't say, a few at a time, so the
+    /// Largest sort and the song counts fill in as each one finishes.
+    private func countPlaylistSizes() async {
+        guard !countingSizes else { return }
+        countingSizes = true
+        defer { countingSizes = false }
+        let provider = self.provider
+        // Everything once a launch (playlists change), then only new ones.
+        let pending = playlists.filter { $0.trackCount == nil && (!countedSizes || playlistSizes[$0.id] == nil) }
+        var queue = pending[...]
+        await withTaskGroup(of: (String, Int?).self) { group in
+            func next() {
+                guard let playlist = queue.popFirst() else { return }
+                group.addTask { @MainActor in (playlist.id, (try? await provider.tracks(in: playlist))?.count) }
+            }
+            for _ in 0..<4 { next() }
+            for await (id, count) in group {
+                if let count { playlistSizes[id] = count }
+                next()
+            }
+        }
+        guard provider === self.provider else { return }
+        countedSizes = true
+        UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
     }
 
     // MARK: Navigation
@@ -313,6 +391,10 @@ final class AppModel {
 
     func play(_ tracks: [TrackItem], startAt index: Int = 0, shuffled: Bool? = nil, from source: QueueSource? = nil) {
         player.play(tracks, startAt: index, shuffled: shuffled, from: source)
+        if let source, source.kind == .playlist, let id = source.id {
+            playlistPlayedAt[id] = Date()
+            UserDefaults.standard.set(playlistPlayedAt, forKey: Self.playedKey)
+        }
     }
 
     func play(_ item: ShelfItem, shuffled: Bool? = false) async {

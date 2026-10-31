@@ -73,6 +73,20 @@ post shuffle; sleep 1
 [[ "$(state upNext)" == "$inorder" ]] || fail "turning shuffle off didn't restore the order: $(state upNext)"
 echo "ok   shuffle off; the original order is back"
 
+post snapshot; sleep 1
+python3 - "$OUT/state.json" <<'PY' || fail "playlist sorting is wrong"
+import json, sys
+s = json.load(open(sys.argv[1]))
+names, sizes = s["playlistsName"], [int(x.rsplit(":", 1)[1]) for x in s["playlistsSize"]]
+assert names == sorted(names, key=str.casefold), ("A–Z", names)
+assert sizes == sorted(sizes, reverse=True) and min(sizes) >= 0, ("Largest", s["playlistsSize"])
+PY
+post play-last-playlist; sleep 1.5
+last=$(state source | sed 's/^Playlist: //')
+recent=$(python3 -c "import json; print(json.load(open('$OUT/state.json'))['playlistsRecent'][0])")
+[[ "$recent" == "$last" ]] || fail "Recent doesn't put the playlist just played ('$last') first: '$recent'"
+echo "ok   playlists sort A–Z, by size, and by recent ('$last' first after playing it)"
+
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 
 # Artwork from the real library: every source must draw.

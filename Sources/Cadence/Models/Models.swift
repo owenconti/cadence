@@ -85,6 +85,12 @@ struct PlaylistItem: Identifiable, Hashable, Sendable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+enum PlaylistSort: String, CaseIterable {
+    case recent = "Recent"
+    case name = "A–Z"
+    case size = "Largest"
+}
+
 enum ShelfItem: Identifiable, Hashable {
     case album(AlbumItem)
     case playlist(PlaylistItem)

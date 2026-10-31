@@ -56,6 +56,8 @@ final class DemoProvider: MusicProvider {
         )
     }
 
+    func recentlyPlayedPlaylistNames() async -> [String] { [] }
+
     func album(for track: TrackItem) async -> AlbumItem? {
         library.albums.first { $0.id == track.albumID }
     }

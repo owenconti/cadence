@@ -18,4 +18,6 @@ protocol MusicProvider: AnyObject {
     func tracks(withIDs ids: [String]) async throws -> [TrackItem]
     /// The album a song is on, to open its page.
     func album(for track: TrackItem) async -> AlbumItem?
+    /// Names of playlists recently played anywhere, newest first.
+    func recentlyPlayedPlaylistNames() async -> [String]
 }
