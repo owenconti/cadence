@@ -187,6 +187,11 @@ struct CommandPalette: View {
             list.append(.init(id: "go:artist", group: "Go to", title: "Current artist", subtitle: track.artistName, symbol: "person.fill") {
                 model.openArtist(id: track.artistID, name: track.artistName)
             })
+            if !track.albumTitle.isEmpty {
+                list.append(.init(id: "go:album", group: "Go to", title: "Current album", subtitle: track.albumTitle, symbol: "square.stack") {
+                    model.openAlbum(of: track)
+                })
+            }
             list += [
                 .init(id: "cmd:toggle", group: "Playback", title: player.isPlaying ? "Pause" : "Resume", symbol: player.isPlaying ? "pause.fill" : "play.fill", hint: "Space", keywords: "play") { player.toggle() },
                 .init(id: "cmd:next", group: "Playback", title: "Next track", symbol: "forward.fill", hint: "⌘→", keywords: "skip") { player.next() },

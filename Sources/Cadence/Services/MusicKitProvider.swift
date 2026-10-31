@@ -76,6 +76,26 @@ final class MusicKitProvider: MusicProvider {
         )
     }
 
+    func album(for track: TrackItem) async -> AlbumItem? {
+        // A song in a playlist often isn't on an album saved to the library;
+        // its album then comes back as a stub with no tracks. Use the library
+        // album only when it has songs, otherwise find it in the catalog.
+        if let song = track.song, let album = try? await song.with([.albums]).albums?.first,
+           let detailed = try? await album.with([.tracks]), !(detailed.tracks ?? []).isEmpty {
+            return AlbumItem(detailed)
+        }
+        var search = MusicCatalogSearchRequest(term: "\(track.albumTitle) \(track.artistName)", types: [Album.self])
+        search.limit = 10
+        let albums = (try? await search.response().albums) ?? []
+        func same(_ a: String, _ b: String) -> Bool { a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+        let byArtist = albums.filter { same($0.artistName, track.artistName) }
+        let match = byArtist.first { same($0.title, track.albumTitle) }
+            ?? byArtist.first { $0.title.localizedCaseInsensitiveContains(track.albumTitle) || track.albumTitle.localizedCaseInsensitiveContains($0.title) }
+            ?? albums.first { same($0.title, track.albumTitle) }
+            ?? byArtist.first
+        return match.map(AlbumItem.init)
+    }
+
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
         let songs = await songs(withIDs: ids)
         return ids.compactMap { id in songs[id].map { song in withID(id, TrackItem(song: song)) } }

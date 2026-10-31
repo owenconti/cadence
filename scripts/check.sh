@@ -63,6 +63,10 @@ open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
 cp "$OUT/window.png" "$OUT/5-reopened.png"
 echo "ok   quit and reopened; '$track' is back, paused at $(state position | cut -d. -f1)s, still shuffled"
 
+post open-album; sleep 1.5
+[[ "$(state page)" == album ]] || fail "clicking the album didn't open it: $(state page)"
+echo "ok   opened the album '$(state pageTitle)' from Now Playing"
+
 post shuffle; sleep 1
 [[ "$(state shuffled)" == False ]] || fail "shuffle didn't turn off"
 [[ "$(state track)" == "$track" ]] || fail "turning shuffle off changed the current song"

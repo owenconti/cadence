@@ -56,13 +56,17 @@ struct NowPanel: View {
                 .lineLimit(2)
                 .contentTransition(.opacity)
             Button(track.artistName) { model.openArtist(id: track.artistID, name: track.artistName) }
-                .buttonStyle(.plain)
+                .buttonStyle(LinkButtonStyle())
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Theme.secondary)
-            Text(track.albumTitle)
-                .font(.system(size: 12))
-                .foregroundStyle(Theme.tertiary)
                 .lineLimit(1)
+                .help("Go to \(track.artistName)")
+            if !track.albumTitle.isEmpty {
+                Button(track.albumTitle) { model.openAlbum(of: track) }
+                    .buttonStyle(LinkButtonStyle(color: Theme.tertiary))
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .help("Go to \(track.albumTitle)")
+            }
         }
     }
 }
@@ -70,30 +74,26 @@ struct NowPanel: View {
 /// "Playing from playlist" and its name, which opens it.
 private struct PlayingFrom: View {
     @Environment(AppModel.self) private var model
-    @State private var hovering = false
 
     var body: some View {
         if let source = model.player.source {
             VStack(alignment: .leading, spacing: 4) {
                 Text("PLAYING FROM \(source.label.uppercased())").eyebrow()
-                Button { model.open(source) } label: {
-                    HStack(spacing: 4) {
-                        Text(source.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                        if canOpen(source) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(Theme.tertiary)
+                if canOpen(source) {
+                    Button { model.open(source) } label: {
+                        HStack(spacing: 4) {
+                            Text(source.title).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
                         }
                     }
-                    .foregroundStyle(hovering && canOpen(source) ? Theme.text : Theme.secondary)
-                    .contentShape(Rectangle())
+                    .buttonStyle(LinkButtonStyle())
+                    .font(.system(size: 13, weight: .semibold))
+                } else {
+                    Text(source.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.secondary)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canOpen(source))
-                .onHover { hovering = $0 }
-                .help(canOpen(source) ? "Go to \(source.title)" : "")
             }
         } else {
             Text("NOW PLAYING").eyebrow()

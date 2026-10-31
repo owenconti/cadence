@@ -141,3 +141,31 @@ struct ExplicitBadge: View {
             .background(RoundedRectangle(cornerRadius: 3).fill(Theme.tertiary))
     }
 }
+
+/// Text that goes somewhere (an artist, an album): brightens and underlines on
+/// hover, with a pointing-hand cursor.
+struct LinkButtonStyle: ButtonStyle {
+    var color: Color = Theme.secondary
+
+    func makeBody(configuration: Configuration) -> some View {
+        LinkLabel(label: configuration.label, color: color, pressed: configuration.isPressed)
+    }
+
+    private struct LinkLabel<Label: View>: View {
+        let label: Label
+        let color: Color
+        let pressed: Bool
+        @State private var hovering = false
+
+        var body: some View {
+            label
+                .foregroundStyle(hovering ? Theme.text : color)
+                .underline(hovering)
+                .opacity(pressed ? 0.7 : 1)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+                .pointerStyle(.link)
+                .animation(.easeOut(duration: 0.12), value: hovering)
+        }
+    }
+}

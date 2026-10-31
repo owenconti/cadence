@@ -56,6 +56,10 @@ final class DemoProvider: MusicProvider {
         )
     }
 
+    func album(for track: TrackItem) async -> AlbumItem? {
+        library.albums.first { $0.id == track.albumID }
+    }
+
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
         let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return ids.compactMap { byID[$0] }

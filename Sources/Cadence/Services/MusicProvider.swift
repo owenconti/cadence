@@ -16,4 +16,6 @@ protocol MusicProvider: AnyObject {
     func search(_ term: String) async throws -> SearchResults
     /// Songs by ID, in the order given, skipping any that no longer exist.
     func tracks(withIDs ids: [String]) async throws -> [TrackItem]
+    /// The album a song is on, to open its page.
+    func album(for track: TrackItem) async -> AlbumItem?
 }

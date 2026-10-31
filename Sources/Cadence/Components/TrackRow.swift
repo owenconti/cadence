@@ -31,17 +31,16 @@ struct TrackRow: View {
                     if track.isExplicit { ExplicitBadge() }
                 }
                 Button(track.artistName) { model.openArtist(id: track.artistID, name: track.artistName) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(LinkButtonStyle())
                     .font(.system(size: 12))
-                    .foregroundStyle(Theme.secondary)
             }
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if showAlbum {
-                Text(track.albumTitle)
+                Button(track.albumTitle) { model.openAlbum(of: track) }
+                    .buttonStyle(LinkButtonStyle())
                     .font(.system(size: 12))
-                    .foregroundStyle(Theme.secondary)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -114,6 +113,9 @@ struct TrackMenu: View {
         Button("Add to Queue", systemImage: "text.append") { model.player.addToQueue(track) }
         Divider()
         Button("Go to Artist", systemImage: "person") { model.openArtist(id: track.artistID, name: track.artistName) }
+        if !track.albumTitle.isEmpty {
+            Button("Go to Album", systemImage: "square.stack") { model.openAlbum(of: track) }
+        }
     }
 }
 

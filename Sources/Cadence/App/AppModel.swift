@@ -323,6 +323,13 @@ final class AppModel {
         }
     }
 
+    /// Opens the album a song is on.
+    func openAlbum(of track: TrackItem) {
+        Task {
+            if let album = await provider.album(for: track) { navigate(.album(album)) }
+        }
+    }
+
     /// Opens the page for where the music is playing from.
     func open(_ source: QueueSource) {
         switch source.kind {
