@@ -35,6 +35,48 @@ enum ArtworkSnapshot {
         return nil
     }
 
+    /// Whether `ArtworkView`, as the app shows it, gets past its placeholder:
+    /// drawn next to a placeholder-only copy until most of it differs.
+    static func viewDraws(_ source: ArtworkSource, size: CGFloat, circular: Bool, timeout: Duration = .seconds(15)) async -> Bool {
+        func window<V: View>(_ view: V) -> SnapshotWindow {
+            let window = SnapshotWindow(size: size)
+            window.contentView = NSHostingView(rootView: view.frame(width: size, height: size))
+            window.orderFrontRegardless()
+            return window
+        }
+        let real = window(ArtworkView(source: source, circular: circular))
+        let placeholder = window(ArtworkView(source: source, circular: circular, placeholderOnly: true))
+        defer { real.close(); placeholder.close() }
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let a = capture(real), let b = capture(placeholder) else { continue }
+            if share(of: a, matching: b) < 0.5 { return true }
+        }
+        return false
+    }
+
+    private static func capture(_ window: NSWindow) -> NSBitmapImageRep? {
+        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep
+    }
+
+    /// How much of `a` matches `b`, from a 12×12 grid of the middle (corners
+    /// are clipped away in both).
+    private static func share(of a: NSBitmapImageRep, matching b: NSBitmapImageRep) -> Double {
+        var same = 0
+        for i in 0..<12 {
+            for j in 0..<12 {
+                let x = a.pixelsWide * (4 + i) / 20, y = a.pixelsHigh * (4 + j) / 20
+                guard let p = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), let q = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if abs(p.redComponent - q.redComponent) < 0.03, abs(p.greenComponent - q.greenComponent) < 0.03,
+                   abs(p.blueComponent - q.blueComponent) < 0.03 { same += 1 }
+            }
+        }
+        return Double(same) / 144
+    }
+
     private static let backdrop = Color(red: 1, green: 0, blue: 1)
 
     /// The backdrop as it comes out of a render (color matching shifts it),

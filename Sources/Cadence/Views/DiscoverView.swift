@@ -24,7 +24,7 @@ struct DiscoverView: View {
         }
         .task {
             guard model.discoverFeed == nil else { return }
-            do { model.discoverFeed = try await model.provider.discover() } catch { loadError = error.localizedDescription }
+            do { try await model.loadDiscover() } catch { loadError = error.localizedDescription }
         }
     }
 

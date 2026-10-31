@@ -40,10 +40,18 @@ OLD="$(dirname "$STAGE")/old.app"
 # On any exit: if the swap below was cut short, put the previous app back
 # before the staging folder (which holds it) is removed.
 cleanup() {
+    local status=$?
     if [[ ! -d "$APP" && -d "$OLD" ]]; then
-        mv "$OLD" "$APP" && echo "warning: install didn't finish; kept the previous $APP" >&2
+        if mv "$OLD" "$APP"; then
+            echo "warning: install didn't finish; kept the previous $APP" >&2
+        else
+            # Never delete the only copy left.
+            echo "error: install failed and the previous app couldn't be put back; it's at $OLD" >&2
+            exit 1
+        fi
     fi
     rm -rf "$(dirname "$STAGE")"
+    exit $status
 }
 trap cleanup EXIT
 trap 'exit 1' INT TERM HUP

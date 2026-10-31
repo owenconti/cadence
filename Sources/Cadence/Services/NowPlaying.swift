@@ -60,6 +60,7 @@ final class NowPlaying {
     private func publishIfChanged() {
         let id = player.current?.id
         guard let last = published else { return publish() }
+        if let track = player.current, artwork.retryDue(for: track) { return publish() }
         let expected = last.position + (last.playing ? Date().timeIntervalSince(last.at) : 0)
         // A restored song's artwork is swapped for a working copy after launch.
         if id != last.id || player.current?.artwork != last.artwork || player.isPlaying != last.playing || player.isShuffled != last.shuffled
@@ -113,23 +114,51 @@ final class NowPlaying {
 
 /// Control Center's picture of the playing song. Loads once per song and
 /// artwork, so when a restored song's dead artwork is swapped for a working
-/// copy, that copy loads instead of the failed attempt sticking.
+/// copy, that copy loads instead of the failed attempt sticking. A load that
+/// fails is tried again after a while (10 s, doubling to 2 min), in case it
+/// was the network.
 @MainActor
 final class NowPlayingArtwork {
-    private var current: (id: String, source: ArtworkSource, image: NSImage?)?
+    private struct Attempt {
+        let id: String
+        let source: ArtworkSource
+        var image: NSImage?
+        var loading = true
+        var failures = 0
+        var retryAt = Date.distantFuture
+    }
+
+    private var current: Attempt?
     /// Called when an image arrives for the song that's still current.
     var loaded: () -> Void = {}
 
-    /// The image if it's ready; otherwise starts loading it and returns nil.
+    /// The image if it's ready; otherwise starts loading it (unless a load is
+    /// under way or a failed one isn't due again yet) and returns nil.
     func image(for track: TrackItem) -> NSImage? {
-        if let current, current.id == track.id, current.source == track.artwork { return current.image }
-        current = (track.id, track.artwork, nil)
+        if let current, current.id == track.id, current.source == track.artwork {
+            if current.image != nil || current.loading || Date() < current.retryAt { return current.image }
+        } else {
+            current = Attempt(id: track.id, source: track.artwork)
+        }
+        current?.loading = true
         Task {
             let image = await NowPlaying.image(for: track.artwork)
-            guard let image, let current, current.id == track.id, current.source == track.artwork else { return }
-            self.current?.image = image
-            loaded()
+            guard var attempt = self.current, attempt.id == track.id, attempt.source == track.artwork else { return }
+            attempt.loading = false
+            attempt.image = image
+            if image == nil, track.artwork != .none {
+                attempt.failures += 1
+                attempt.retryAt = Date().addingTimeInterval(min(10 * pow(2, Double(attempt.failures - 1)), 120))
+            }
+            self.current = attempt
+            if image != nil { loaded() }
         }
         return nil
+    }
+
+    /// Whether a failed load for `track` is due another try.
+    func retryDue(for track: TrackItem) -> Bool {
+        guard let current, current.id == track.id, current.source == track.artwork else { return false }
+        return current.image == nil && !current.loading && Date() >= current.retryAt
     }
 }

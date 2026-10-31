@@ -21,7 +21,8 @@ import notify
 ///   key handling all see it. Numbered, so a late or repeated notification
 ///   never presses twice; `pressed` in state.json says which number ran.
 /// - `select-artists`: goes to Artists.
-/// - `play-duplicates`: plays A, B, A, C from the second A.
+/// - `play-duplicates`: plays A, B, A, C from the second A; `play-duplicates-first`
+///   from the first.
 /// - `type-glass`: types "glass" into the window, as the keyboard would.
 /// - `open-largest`: opens the biggest playlist from Discover and records the
 ///   longest main-thread stall during the page transition (`stallMs`) and over
@@ -34,7 +35,7 @@ enum CheckHooks {
     private static var activity: NSObjectProtocol?
     private static let keys: [String: (String, UInt16, NSEvent.ModifierFlags)] = [
         "cmd-b": ("b", 11, .command), "shift-cmd-f": ("f", 3, [.command, .shift]),
-        "cmd-k": ("k", 40, .command), "esc": ("\u{1b}", 53, []),
+        "cmd-k": ("k", 40, .command), "esc": ("\u{1b}", 53, []), "cmd-s": ("s", 1, .command),
     ]
     private static var stallMsOverall: Double = 0
 
@@ -89,11 +90,13 @@ enum CheckHooks {
             press(chars, keyCode: code, modifiers: modifiers)
         }
         listen("select-artists") { model.select(.artists) }
-        listen("play-duplicates") {
-            Task {
-                guard let playlist = model.playlists.first,
-                      let tracks = try? await model.provider.tracks(in: playlist), tracks.count >= 3 else { return }
-                model.play([tracks[0], tracks[1], tracks[0], tracks[2]], startAt: 2, shuffled: false, from: .playlist(playlist))
+        for (name, start) in [("play-duplicates", 2), ("play-duplicates-first", 0)] {
+            listen(name) {
+                Task {
+                    guard let playlist = model.playlists.first,
+                          let tracks = try? await model.provider.tracks(in: playlist), tracks.count >= 3 else { return }
+                    model.play([tracks[0], tracks[1], tracks[0], tracks[2]], startAt: start, shuffled: false, from: .playlist(playlist))
+                }
             }
         }
         listen("focus-filter") {

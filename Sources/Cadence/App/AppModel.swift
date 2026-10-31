@@ -77,6 +77,11 @@ final class AppModel {
     /// Bumped by every switch of library (connecting, the demo), so a slow
     /// one finishing late can't undo a newer choice.
     @ObservationIgnored private var sourceGeneration = 0
+    /// Counts moves between pages, so a slow lookup can tell it's been passed by.
+    @ObservationIgnored private var navigationMoves = 0
+    @ObservationIgnored private var playRequest = 0
+    /// Counts playlist refreshes; only the latest one's result is used.
+    @ObservationIgnored private var playlistRefreshes = 0
     private static let sourceKey = "cadence.source"
     private static let sizesKey = "cadence.playlistSizes"
     private static let sidebarHiddenKey = "cadence.sidebarHidden"
@@ -168,6 +173,8 @@ final class AppModel {
 
     func startDemo() {
         sourceGeneration += 1
+        // A connection under way is abandoned; the connect screen starts fresh.
+        access = .idle
         let generation = sourceGeneration
         Task {
             let started = Date()
@@ -285,6 +292,15 @@ final class AppModel {
         }
     }
 
+    /// Discover's feed, if it isn't loaded. Dropped if the library changed or
+    /// was reloaded meanwhile (a newer load is on its way).
+    func loadDiscover() async throws {
+        let generation = providerGeneration, provider = self.provider
+        let feed = try await provider.discover()
+        guard !Task.isCancelled, generation == providerGeneration, provider === self.provider else { return }
+        discoverFeed = feed
+    }
+
     /// Reloads every page from the library, keeping where you are.
     func reloadLibrary() {
         discoverFeed = nil
@@ -314,9 +330,11 @@ final class AppModel {
     /// launch, still playing after Restart app.
     private func restorePlayback(keepPlaying: Bool) async {
         let provider = self.provider
+        // Anything played meanwhile wins over what was saved.
+        let revision = player.revision
         guard RunMode.current != .snapshots,
               let saved = await playbackStore.load(lookup: { ids in (try? await provider.tracks(withIDs: ids)) ?? [] }),
-              self.provider === provider,
+              self.provider === provider, player.revision == revision,
               saved.position.live == provider.isLive,
               let start = saved.position.index.flatMap({ saved.tracks.indices.contains($0) && saved.tracks[$0].id == saved.position.trackID ? $0 : nil })
                 ?? saved.tracks.firstIndex(where: { $0.id == saved.position.trackID }) else { return }
@@ -345,7 +363,9 @@ final class AppModel {
 
     func refreshPlaylists(recount: Bool = false) async {
         let provider = self.provider
-        if let fresh = try? await provider.playlists(), self.provider === provider {
+        playlistRefreshes += 1
+        let refresh = playlistRefreshes
+        if let fresh = try? await provider.playlists(), self.provider === provider, refresh == playlistRefreshes {
             playlists = fresh
             playlistsLoaded = true
         }
@@ -419,6 +439,9 @@ final class AppModel {
                     if let count {
                         playlistSizes[id] = count
                     } else {
+                        // An old count may no longer be right; without one it
+                        // sorts last and is tried again next time.
+                        playlistSizes[id] = nil
                         uncountedPlaylists.insert(id)
                     }
                     next()
@@ -457,18 +480,21 @@ final class AppModel {
     // MARK: Navigation
 
     func select(_ section: SidebarSection) {
+        navigationMoves += 1
         self.section = section
         stack = []
         nowPlayingMode = false
     }
 
     func navigate(_ route: Route) {
+        navigationMoves += 1
         nowPlayingMode = false
         guard route != self.route else { return }
         stack.append(route)
     }
 
     func back() {
+        navigationMoves += 1
         _ = stack.popLast()
     }
 
@@ -493,19 +519,31 @@ final class AppModel {
         }
     }
 
+    /// Loads an album or playlist and plays it, unless something else was
+    /// played (or another one asked for) while it loaded.
     func play(_ item: ShelfItem, shuffled: Bool? = false) async {
+        playRequest += 1
+        let request = playRequest, revision = player.revision, provider = self.provider
+        let tracks: [TrackItem]?, source: QueueSource
         switch item {
         case .album(let album):
-            if let tracks = try? await provider.tracks(in: album) { play(tracks, shuffled: shuffled, from: .album(album)) }
+            tracks = try? await provider.tracks(in: album)
+            source = .album(album)
         case .playlist(let playlist):
-            if let tracks = try? await provider.tracks(in: playlist) { play(tracks, shuffled: shuffled, from: .playlist(playlist)) }
+            tracks = try? await provider.tracks(in: playlist)
+            source = .playlist(playlist)
         }
+        guard let tracks, request == playRequest, revision == player.revision, provider === self.provider else { return }
+        play(tracks, shuffled: shuffled, from: source)
     }
 
     /// Opens the album a song is on.
     func openAlbum(of track: TrackItem) {
+        let moves = navigationMoves, provider = self.provider
         Task {
-            if let album = await provider.album(for: track) { navigate(.album(album)) }
+            // Not if you've gone somewhere else while it was being looked up.
+            guard let album = await provider.album(for: track), moves == navigationMoves, provider === self.provider else { return }
+            navigate(.album(album))
         }
     }
 
@@ -548,7 +586,16 @@ final class AppModel {
             case 125: palette.move(1); return true
             case 126: palette.move(-1); return true
             case 36, 76:
-                palette.runSelection(modifiers == .command ? .playNext : modifiers == .option ? .addToQueue : .open)
+                // ⌘↩ and ⌥↩ queue a selected song; on anything else they're
+                // left to the menus (⌘↩ is Play/Pause).
+                let entry = palette.entries.indices.contains(palette.selection) ? palette.entries[palette.selection] : nil
+                switch modifiers {
+                case []: palette.runSelection()
+                case .command where entry?.playNext != nil: palette.runSelection(.playNext)
+                case .option where entry?.addToQueue != nil: palette.runSelection(.addToQueue)
+                case .option: palette.runSelection()
+                default: return false
+                }
                 return true
             case 53: palette.dismiss(); return true
             default: return false

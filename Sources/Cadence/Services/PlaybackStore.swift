@@ -43,71 +43,82 @@ final class PlaybackStore {
     }
 
     private var positionFile: URL { directory.appendingPathComponent("position.json") }
-    /// The queue file the saved position belongs to.
-    private var savedQueueFile: String?
     /// Encoding and writing happen here, in order, off the main thread.
     private let writer = DispatchQueue(label: "com.owenconti.cadence.playback-store", qos: .utility)
+    /// What's on disk, kept by the writer itself, so a position is only ever
+    /// written naming a queue file that was written in full.
+    private let disk = Disk()
+
+    private final class Disk: @unchecked Sendable {
+        // Only touched on `writer`.
+        var queueFile: String?
+        var queueIDs: [String]?
+    }
 
     /// Writes whatever changed: the queue only when its songs change, the
     /// position when the song or play state changes or every few seconds.
     ///
     /// Each queue gets a new file and the position names the file it goes
     /// with; older queue files go only once that position is written. A crash
-    /// part-way through leaves the previous queue and position, which match.
-    func save(_ player: Player, force: Bool = false) {
-        guard let current = player.current, let index = player.index else { return }
+    /// or a failed write leaves the previous queue and position, which match.
+    /// Returns whether a forced save reached the disk.
+    @discardableResult
+    func save(_ player: Player, force: Bool = false) -> Bool {
+        guard let current = player.current, let index = player.index else { return false }
         let ids = player.queue.map(\.id)
-        var newQueue: (name: String, entries: [Entry])?
-        if ids != savedQueueIDs {
-            newQueue = ("queue-\(UUID().uuidString).json", player.queue.map { Entry(id: $0.id, song: $0.song) })
-        }
-        let queueFile = newQueue?.name ?? savedQueueFile ?? "queue.json"
-        let position = Position(live: player.backend == .musicKit, trackID: current.id, index: index, queueFile: queueFile,
+        let entries = ids != savedQueueIDs ? player.queue.map { Entry(id: $0.id, song: $0.song) } : nil
+        let position = Position(live: player.backend == .musicKit, trackID: current.id, index: index, queueFile: nil,
                                 position: player.position, isPlaying: player.isPlaying, shuffled: player.isShuffled,
                                 unshuffledIDs: player.unshuffled?.map(\.id), source: player.source)
-        if newQueue == nil, !force, let last = savedPosition, last.trackID == position.trackID, last.index == position.index,
+        if entries == nil, !force, let last = savedPosition, last.trackID == position.trackID, last.index == position.index,
            last.isPlaying == position.isPlaying, last.shuffled == position.shuffled, last.unshuffledIDs == position.unshuffledIDs,
            last.source == position.source, abs(last.position - position.position) < 3 {
-            return
+            return true
         }
-
-        let previous = (ids: savedQueueIDs, file: savedQueueFile, position: savedPosition)
-        if newQueue != nil { savedQueueIDs = ids }
-        savedQueueFile = queueFile
+        savedQueueIDs = ids
         savedPosition = position
-        let directory = self.directory, positionFile = self.positionFile
-        writer.async {
-            func undo(_ what: String, _ error: Error) {
+
+        let directory = self.directory, positionFile = self.positionFile, disk = self.disk
+        let work = { () -> Bool in
+            func failed(_ what: String, _ error: Error) -> Bool {
                 Self.log.error("couldn't save \(what, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                // Try again on the next save.
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        self.savedQueueIDs = previous.ids
-                        self.savedQueueFile = previous.file
-                        self.savedPosition = previous.position
-                    }
-                }
+                // Write everything again next time.
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.savedQueueIDs = nil; self.savedPosition = nil } }
+                return false
             }
-            if let newQueue {
+            var wroteQueue = false
+            if let entries, ids != disk.queueIDs {
+                let name = "queue-\(UUID().uuidString).json"
                 do {
-                    try JSONEncoder().encode(newQueue.entries).write(to: directory.appendingPathComponent(newQueue.name), options: .atomic)
+                    try JSONEncoder().encode(entries).write(to: directory.appendingPathComponent(name), options: .atomic)
                 } catch {
-                    return undo("the queue", error)
+                    return failed("the queue", error)
                 }
+                disk.queueFile = name
+                disk.queueIDs = ids
+                wroteQueue = true
             }
+            // Only a position that matches the queue on disk.
+            guard let queueFile = disk.queueFile, disk.queueIDs == ids else { return false }
+            var position = position
+            position.queueFile = queueFile
             do {
                 try JSONEncoder().encode(position).write(to: positionFile, options: .atomic)
             } catch {
-                return undo("the position", error)
+                return failed("the position", error)
             }
-            guard newQueue != nil else { return }
-            let stale = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            for name in stale where name.hasPrefix("queue") && name.hasSuffix(".json") && name != queueFile {
-                try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+            if wroteQueue {
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+                for name in names where name.hasPrefix("queue") && name.hasSuffix(".json") && name != queueFile {
+                    try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+                }
             }
+            return true
         }
         // Quitting or restarting: be on disk before going.
-        if force { writer.sync {} }
+        if force { return writer.sync(execute: work) }
+        writer.async { _ = work() }
+        return true
     }
 
     /// The saved queue and where it was. Songs stored whole come back as they
@@ -134,8 +145,13 @@ final class PlaybackStore {
         // A song that's gone shifts the positions; the index then no longer fits.
         var position = read.position
         if tracks.count != entries.count { position.index = nil }
-        savedQueueIDs = tracks.map(\.id)
-        savedQueueFile = position.queueFile
+        // What's on disk now: the queue as saved, before any lookups dropped songs.
+        let disk = self.disk, savedIDs = entries.map(\.id), file = position.queueFile ?? "queue.json"
+        writer.sync {
+            disk.queueFile = file
+            disk.queueIDs = savedIDs
+        }
+        savedQueueIDs = savedIDs
         savedPosition = position
         return (tracks, position)
     }

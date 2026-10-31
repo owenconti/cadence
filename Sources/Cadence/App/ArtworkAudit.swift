@@ -55,6 +55,7 @@ enum ArtworkAudit {
 
         // Discover.
         if let feed = await fetch("Discover", { try await provider.discover() }) {
+            problems += feed.problems.map { "FAIL couldn't load Discover's \($0)" }
             for item in feed.recent { add("Discover: Jump back in", item.title, item.artwork) }
             for shelf in feed.shelves { for item in shelf.items { add("Discover: \(shelf.title)", item.title, item.artwork) } }
             addTracks("Discover: Trending", feed.trending)
@@ -166,6 +167,29 @@ enum ArtworkAudit {
             }
         }
 
+        // The same artwork through the app's own view, as on screen: a sample
+        // from every surface, at the sizes rows, cards and headers use. A
+        // dead handle stays on its placeholder here too (the first control).
+        var viewChecked = 0
+        for surface in Set(items.map(\.surface)).sorted() {
+            for item in items.filter({ $0.surface == surface }).prefix(2) {
+                guard case .musicKit = item.source else { continue }
+                let circular = surface.hasPrefix("Artist") && !surface.hasPrefix("Artist albums") && !surface.hasPrefix("Artist top")
+                    || surface.hasPrefix("Similar")
+                for size: CGFloat in [38, 164] {
+                    viewChecked += 1
+                    if await !ArtworkSnapshot.viewDraws(item.source, size: size, circular: circular),
+                       !placeholders.contains(where: { $0.contains(item.title) }) {
+                        failures.append("FAIL \(surface): \(item.title) shows its placeholder at \(Int(size)) pt in the app's artwork view")
+                    }
+                }
+            }
+        }
+        if let control, case .musicKit = control, await ArtworkSnapshot.viewDraws(control, size: 164, circular: false, timeout: .seconds(10)) {
+            failures.append("FAIL control drew in the app's artwork view: it can't tell artwork from its placeholder")
+        }
+        lines.append("     app's artwork view: \(viewChecked) samples across every surface, at row and card sizes")
+
         // The controls must not draw, or a blank result means nothing: a song
         // saved to disk by an earlier session, and an album reached through
         // its song (the empty album cover of 6cedca0).
@@ -213,11 +237,16 @@ enum ArtworkAudit {
         }
 
         // Every surface must have been tested, or a PASS means little.
-        var required = ["Discover", "Playlists", "Playlist songs", "Album pages", "Album songs", "Artists", "Artist pages",
+        var required = ["Discover: Jump back in", "Discover: Trending", "Discover: New releases", "Playlists", "Playlist songs", "Album pages", "Album songs", "Artists", "Artist pages",
                         "Artist top songs", "Search", "Restored queue"]
         if restored == nil { required.removeAll { $0 == "Restored queue" } }
         for surface in required where !items.contains(where: { $0.surface.hasPrefix(surface) }) {
             failures.append("FAIL nothing tested for \(surface)")
+        }
+        // Recommendation shelves are named by Apple Music.
+        let fixed: Set = ["Discover: Jump back in", "Discover: Trending", "Discover: New releases"]
+        if !items.contains(where: { $0.surface.hasPrefix("Discover: ") && !fixed.contains($0.surface) }) {
+            failures.append("FAIL nothing tested for Discover's recommendations")
         }
         failures = problems + failures
 

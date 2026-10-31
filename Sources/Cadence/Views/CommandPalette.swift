@@ -109,7 +109,9 @@ struct CommandPalette: View {
         let player = model.player
         return [player.current?.id ?? "", "\(player.isPlaying)", "\(player.isShuffled)", "\(model.sidebarHidden)",
                 "\(model.nowPlayingMode)", "\(model.stack.count)", "\(model.update.isReady)",
-                "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.playlists.count)"]
+                "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.phase)", "\(model.access)",
+                // Names too: a renamed or replaced playlist, same count.
+                model.playlists.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
             .joined(separator: "|")
     }
 
@@ -202,6 +204,24 @@ struct CommandPalette: View {
         ) { model.restartApp() }
 
         var list: [PaletteModel.Entry] = []
+        // The connect screen's own actions, while it's showing.
+        if model.phase == .onboarding {
+            switch model.access {
+            case .denied:
+                list.append(.init(id: "connect:settings", group: "Connect", title: "Open System Settings", subtitle: "Turn on Apple Music access for Cadence",
+                                  symbol: "gearshape", keywords: "privacy permission access apple music") { model.openPrivacySettings() })
+            case .failed:
+                list.append(.init(id: "connect:retry", group: "Connect", title: "Try connecting again", symbol: "arrow.clockwise",
+                                  keywords: "apple music retry reconnect") { model.continueWithAppleMusic() })
+            case .idle:
+                list.append(.init(id: "connect:apple", group: "Connect", title: "Continue with Apple Music", symbol: "applelogo",
+                                  keywords: "connect sign in library") { model.continueWithAppleMusic() })
+            case .connecting, .restricted:
+                break
+            }
+            list.append(.init(id: "connect:demo", group: "Connect", title: "Explore the demo library", symbol: "sparkles",
+                              keywords: "demo try offline sample") { model.startDemo() })
+        }
         if model.update.isReady {
             var ready = restart
             ready.group = "Update ready"

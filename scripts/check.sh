@@ -19,9 +19,12 @@ snapshot() {
         post snapshot; sleep 0.3
         [[ "$(python3 -c "import json; print(json.load(open('$OUT/state.json')).get('snapshot'))" 2>/dev/null)" == "$id" ]] && return 0
     done
-    echo "warning: no fresh snapshot" >&2
+    return 1
 }
-state() { snapshot; python3 -c "import json,sys; print(json.load(open('$OUT/state.json'))['$1'])"; }
+# Reading state that isn't fresh would test the wrong thing: stop the check.
+state() {
+    snapshot || { echo "FAIL: the app didn't answer for its state" >&2; pkill -f "$APP/Contents/MacOS/Cadence"; kill "$$"; exit 1; }
+    python3 -c "import json,sys; print(json.load(open('$OUT/state.json'))['$1'])"; }
 # Posts a hook until a state key has the value (notifications can be dropped).
 until_state() { for _ in 1 2 3; do post "$1"; sleep 0.6; [[ "$(state "$2")" == "$3" ]] && return 0; done; return 1; }
 # Presses a key once (see CheckHooks `press`), resending until the app says it ran.
@@ -77,10 +80,11 @@ post shuffle; sleep 1
 cp "$OUT/window.png" "$OUT/4-shuffled.png"
 echo "ok   shuffle on; '$track' still playing"
 
-queue=$(state queueIDs); index=$(state index); quit_position=$(state position)
+queue=$(state queueIDs); index=$(state index); quit_position=$(state position); pid=$(state pid)
 post quit; sleep 2
 pgrep -f "$APP/Contents/MacOS/Cadence" >/dev/null && fail "app didn't quit"
 open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
+[[ "$(state pid)" != "$pid" ]] || fail "still talking to the copy that was asked to quit"
 [[ "$(state track)" == "$track" ]] || fail "after quitting and reopening, got '$(state track)' instead of '$track'"
 [[ "$(state playing)" == False ]] || fail "reopened app started playing by itself"
 [[ "$(state queueIDs)" == "$queue" && "$(state index)" == "$index" ]] || fail "the queue or its position changed across quitting"
@@ -101,7 +105,7 @@ post shuffle; sleep 1
 [[ "$(state upNextAll)" == "$inorder" ]] || fail "turning shuffle off didn't restore the order"
 echo "ok   shuffle off; the original order is back"
 
-snapshot
+snapshot || fail "the app didn't answer for its state"
 python3 - "$OUT/state.json" <<'PY' || fail "playlist sorting is wrong"
 import json, sys
 s = json.load(open(sys.argv[1]))
@@ -138,10 +142,20 @@ echo "ok   ⇧⌘F opens and leaves Now Playing, as does Esc"
 # copy that was playing, not the first.
 until_state play-duplicates index 2 || fail "couldn't play a queue with a song in it twice"
 sleep 2.5
+pid=$(state pid)
 post quit; sleep 2
+pgrep -f "$APP/Contents/MacOS/Cadence" >/dev/null && fail "app didn't quit"
 open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
+[[ "$(state pid)" != "$pid" ]] || fail "still talking to the copy that was asked to quit"
 [[ "$(state index)" == 2 ]] || fail "reopened at queue position $(state index) instead of 2, the second copy of the song"
 echo "ok   a song queued twice comes back as the copy that was playing"
+
+until_state play-duplicates-first index 0 || fail "couldn't play a queue with a song in it twice, from the first copy"
+inorder=$(state upNextAll)
+press cmd-s && [[ "$(state shuffled)" == True ]] || fail "⌘S didn't turn shuffle on"
+press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuffle off"
+[[ "$(state upNextAll)" == "$inorder" ]] || fail "shuffle on then off changed the order of a queue with a song in it twice"
+echo "ok   ⌘S on and off puts a queue with a song in it twice back in order"
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 

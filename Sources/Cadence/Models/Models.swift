@@ -138,6 +138,8 @@ struct DiscoverFeed {
     var shelves: [Shelf] = []
     var trending: [TrackItem] = []
     var newReleases: [AlbumItem] = []
+    /// Sections that failed to load, if any.
+    var problems: [String] = []
 }
 
 struct ArtistDetail {

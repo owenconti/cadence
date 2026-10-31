@@ -7,6 +7,9 @@ struct ArtworkView: View {
     var circular = false
     /// Pixel size requested from the artwork service.
     var resolution = 400
+    /// Only the placeholder, never the artwork: what `make artwork` compares
+    /// the real view against to tell that artwork arrived.
+    var placeholderOnly = false
 
     var body: some View {
         let shape = circular ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -28,8 +31,10 @@ struct ArtworkView: View {
             // arrives leaves the placeholder rather than an empty box.
             ZStack {
                 placeholder(palette)
-                GeometryReader { geo in
-                    ArtworkImage(artwork, width: geo.size.width, height: geo.size.height)
+                if !placeholderOnly {
+                    GeometryReader { geo in
+                        ArtworkImage(artwork, width: geo.size.width, height: geo.size.height)
+                    }
                 }
             }
         case .none:

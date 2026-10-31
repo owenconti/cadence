@@ -2,6 +2,16 @@ import Foundation
 import MusicKit
 
 /// Live backend: the user's Apple Music library plus the catalog, via MusicKit.
+enum ProviderError: LocalizedError {
+    case tooLong(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .tooLong(let count): "Stopped at \(count) items; that's longer than Cadence shows."
+        }
+    }
+}
+
 @MainActor
 final class MusicKitProvider: MusicProvider {
     let displayName = "Apple Music"
@@ -9,8 +19,16 @@ final class MusicKitProvider: MusicProvider {
 
     func discover() async throws -> DiscoverFeed {
         var feed = DiscoverFeed()
+        // Each section is optional (Discover shows what it can), but what
+        // failed is kept, for `make artwork`.
+        func attempt<T>(_ what: String, _ work: () async throws -> T) async -> T? {
+            do { return try await work() } catch {
+                feed.problems.append("\(what): \(error.localizedDescription)")
+                return nil
+            }
+        }
 
-        if let recent = try? await MusicRecentlyPlayedContainerRequest().response() {
+        if let recent = await attempt("recently played", { try await MusicRecentlyPlayedContainerRequest().response() }) {
             feed.recent = recent.items.prefix(6).compactMap { item in
                 switch item {
                 case .album(let album): .album(AlbumItem(album))
@@ -20,7 +38,7 @@ final class MusicKitProvider: MusicProvider {
             }
         }
 
-        if let recs = try? await MusicPersonalRecommendationsRequest().response() {
+        if let recs = await attempt("recommendations", { try await MusicPersonalRecommendationsRequest().response() }) {
             feed.shelves = recs.recommendations.prefix(5).compactMap { rec in
                 let items = rec.playlists.map { ShelfItem.playlist(PlaylistItem($0)) }
                     + rec.albums.map { ShelfItem.album(AlbumItem($0)) }
@@ -29,7 +47,7 @@ final class MusicKitProvider: MusicProvider {
             }
         }
 
-        if let charts = try? await MusicCatalogChartsRequest(kinds: [.mostPlayed], types: [Song.self, Album.self]).response() {
+        if let charts = await attempt("charts", { try await MusicCatalogChartsRequest(kinds: [.mostPlayed], types: [Song.self, Album.self]).response() }) {
             feed.trending = charts.songCharts.first?.items.prefix(10).map(TrackItem.init(song:)) ?? []
             feed.newReleases = charts.albumCharts.first?.items.prefix(12).map(AlbumItem.init) ?? []
         }
@@ -39,24 +57,24 @@ final class MusicKitProvider: MusicProvider {
 
     func playlists() async throws -> [PlaylistItem] {
         let response = try await MusicLibraryRequest<Playlist>().response()
-        return await everything(response.items).map(PlaylistItem.init)
+        return try await everything(response.items).map(PlaylistItem.init)
     }
 
     func tracks(in playlist: PlaylistItem) async throws -> [TrackItem] {
         guard let playlist = playlist.playlist else { return [] }
         let detailed = try await playlist.with([.tracks])
-        return await everything(detailed.tracks).compactMap(TrackItem.init(track:))
+        return try await everything(detailed.tracks).compactMap(TrackItem.init(track:))
     }
 
     func tracks(in album: AlbumItem) async throws -> [TrackItem] {
         guard let album = album.album else { return [] }
         let detailed = try await album.with([.tracks])
-        return await everything(detailed.tracks).compactMap(TrackItem.init(track:))
+        return try await everything(detailed.tracks).compactMap(TrackItem.init(track:))
     }
 
     func artists() async throws -> [ArtistItem] {
         let response = try await MusicLibraryRequest<Artist>().response()
-        return await everything(response.items).map {
+        return try await everything(response.items).map {
             var artist = ArtistItem($0)
             artist.fromLibrary = true
             return artist
@@ -80,7 +98,7 @@ final class MusicKitProvider: MusicProvider {
         return ArtistDetail(
             artist: ArtistItem(detailed),
             topSongs: detailed.topSongs?.prefix(10).map(TrackItem.init(song:)) ?? [],
-            albums: await everything(detailed.albums).map(AlbumItem.init),
+            albums: try await everything(detailed.albums).map(AlbumItem.init),
             similar: detailed.similarArtists?.prefix(12).map(ArtistItem.init) ?? []
         )
     }
@@ -121,11 +139,15 @@ final class MusicKitProvider: MusicProvider {
     }
 
     /// Every item in a relationship. MusicKit hands long ones over a batch
-    /// at a time (a big playlist, a long discography).
-    private func everything<Item: Decodable>(_ first: MusicItemCollection<Item>?) async -> [Item] {
+    /// at a time (a big playlist, a long discography). A batch that fails
+    /// fails the whole load rather than passing off the first part as all.
+    /// (Decodable matters: without it MusicKit traps on the next batch.)
+    private func everything<Item: Decodable>(_ first: MusicItemCollection<Item>?) async throws -> [Item] {
         guard var batch = first else { return [] }
         var items = Array(batch)
-        while batch.hasNextBatch, items.count < 20_000, let next = try? await batch.nextBatch() {
+        while batch.hasNextBatch {
+            guard items.count < 50_000 else { throw ProviderError.tooLong(items.count) }
+            guard let next = try await batch.nextBatch() else { break }
             items += next
             batch = next
         }
