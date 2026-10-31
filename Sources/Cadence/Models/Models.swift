@@ -67,6 +67,8 @@ struct ArtistItem: Identifiable, Hashable, Sendable {
     var genre: String?
     var artwork: ArtworkSource
     var artist: Artist?
+    /// A library artist, as opposed to one from the catalog.
+    var fromLibrary = false
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }

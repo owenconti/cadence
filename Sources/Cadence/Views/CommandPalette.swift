@@ -4,6 +4,8 @@ import SwiftUI
 struct CommandPalette: View {
     @Environment(AppModel.self) private var model
     @State private var searching = false
+    /// Catalog results for the current query.
+    @State private var catalog: [PaletteModel.Entry] = []
 
     var body: some View {
         @Bindable var palette = model.palette
@@ -31,6 +33,10 @@ struct CommandPalette: View {
                 HStack(spacing: 16) {
                     hint("↑↓", "navigate")
                     hint("↩", "open")
+                    if palette.entries.indices.contains(palette.selection), palette.entries[palette.selection].playNext != nil {
+                        hint("⌘↩", "play next")
+                        hint("⌥↩", "add to queue")
+                    }
                     hint("esc", "close")
                     Spacer()
                 }
@@ -45,7 +51,8 @@ struct CommandPalette: View {
             .shadow(color: .black.opacity(0.5), radius: 50, y: 24)
             .padding(.top, 110)
         }
-        .task(id: palette.query) { await rebuild() }
+        .task(id: palette.query) { await search() }
+        .onChange(of: stateKey) { apply() }
     }
 
     private func results(_ palette: PaletteModel) -> some View {
@@ -95,19 +102,47 @@ struct CommandPalette: View {
 
     // MARK: Results
 
-    private func rebuild() async {
+    /// What the app's own state decides: commands, the current song, your
+    /// playlists. Rebuilt when any of it changes, so an open palette never
+    /// offers a stale "Pause" or the previous song's album.
+    private var stateKey: String {
+        let player = model.player
+        return [player.current?.id ?? "", "\(player.isPlaying)", "\(player.isShuffled)", "\(model.sidebarHidden)",
+                "\(model.nowPlayingMode)", "\(model.stack.count)", "\(model.update.isReady)",
+                "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.playlists.count)"]
+            .joined(separator: "|")
+    }
+
+    /// Recombines local entries with the latest catalog results, keeping the
+    /// selected entry selected.
+    private func apply(resetSelection: Bool = false) {
         let palette = model.palette
+        let selected = palette.entries.indices.contains(palette.selection) ? palette.entries[palette.selection].id : nil
         let query = palette.query.trimmingCharacters(in: .whitespaces)
         var entries = commands.filter { $0.matches(query) }
-
         let playlistHits = model.playlists
             .filter { !query.isEmpty && $0.name.localizedCaseInsensitiveContains(query) }
             .prefix(4)
             .map(playlistEntry)
-        entries.append(contentsOf: playlistHits)
+        entries += playlistHits
+        if query.isEmpty {
+            entries += recentPlaylists
+        } else {
+            let known = Set(entries.map(\.id))
+            entries += catalog.filter { !known.contains($0.id) }
+        }
+        palette.entries = entries
+        if resetSelection {
+            palette.selection = 0
+        } else {
+            palette.selection = selected.flatMap { id in entries.firstIndex { $0.id == id } } ?? min(palette.selection, max(entries.count - 1, 0))
+        }
+    }
 
-        palette.entries = query.isEmpty ? entries + recentPlaylists : entries
-        palette.selection = 0
+    private func search() async {
+        let query = model.palette.query.trimmingCharacters(in: .whitespaces)
+        catalog = []
+        apply(resetSelection: true)
         guard query.count >= 2 else { return }
 
         // Debounce so we only hit the catalog once typing pauses.
@@ -118,25 +153,28 @@ struct CommandPalette: View {
         guard let results = try? await model.provider.search(query), !Task.isCancelled else { return }
 
         let songs = results.songs
-        entries.append(contentsOf: songs.prefix(5).map { track in
-            .init(id: "song:\(track.id)", group: "Songs", title: track.title, subtitle: track.artistName, artwork: track.artwork, hint: "Play") {
-                model.play(songs, startAt: songs.firstIndex(of: track) ?? 0, from: .search(query))
+        var found: [PaletteModel.Entry] = songs.prefix(5).enumerated().map { i, track in
+            var entry = PaletteModel.Entry(id: "song:\(track.id)", group: "Songs", title: track.title, subtitle: track.artistName,
+                                           artwork: track.artwork, hint: "Play") {
+                model.play(songs, startAt: i, from: .search(query))
             }
-        })
-        entries.append(contentsOf: results.artists.prefix(4).map { artist in
+            entry.playNext = { model.player.playNext(track) }
+            entry.addToQueue = { model.player.addToQueue(track) }
+            return entry
+        }
+        found += results.artists.prefix(4).map { artist in
             .init(id: "artist:\(artist.id)", group: "Artists", title: artist.name, subtitle: artist.genre, artwork: artist.artwork, circular: true) {
                 model.navigate(.artist(artist))
             }
-        })
-        entries.append(contentsOf: results.albums.prefix(4).map { album in
+        }
+        found += results.albums.prefix(4).map { album in
             .init(id: "album:\(album.id)", group: "Albums", title: album.title, subtitle: album.artistName, artwork: album.artwork) {
                 model.navigate(.album(album))
             }
-        })
-        let known = Set(playlistHits.map(\.id))
-        entries.append(contentsOf: results.playlists.prefix(4).map(playlistEntry).filter { !known.contains($0.id) })
-        palette.entries = entries
-        palette.selection = min(palette.selection, max(entries.count - 1, 0))
+        }
+        found += results.playlists.prefix(4).map(playlistEntry)
+        catalog = found
+        apply()
     }
 
     private func playlistEntry(_ playlist: PlaylistItem) -> PaletteModel.Entry {
@@ -188,13 +226,14 @@ struct CommandPalette: View {
                 })
             }
             list += [
-                .init(id: "cmd:toggle", group: "Playback", title: player.isPlaying ? "Pause" : "Resume", symbol: player.isPlaying ? "pause.fill" : "play.fill", hint: "Space", keywords: "play") { player.toggle() },
+                .init(id: "cmd:toggle", group: "Playback", title: player.isPlaying ? "Pause" : "Resume", symbol: player.isPlaying ? "pause.fill" : "play.fill", hint: "Space · ⌘↩", keywords: "play") { player.toggle() },
                 .init(id: "cmd:next", group: "Playback", title: "Next track", symbol: "forward.fill", hint: "⌘→", keywords: "skip") { player.next() },
                 .init(id: "cmd:previous", group: "Playback", title: "Previous track", symbol: "backward.fill", hint: "⌘←", keywords: "back restart song") { player.previous() },
-                .init(id: "cmd:shuffle", group: "Playback", title: player.isShuffled ? "Turn shuffle off" : "Turn shuffle on",
-                      symbol: "shuffle", hint: "⌘S", keywords: "shuffle random order mode") { player.toggleShuffle() },
             ]
         }
+        // Like the Playback menu: shuffle is a mode, set even with nothing playing.
+        list.append(.init(id: "cmd:shuffle", group: "Playback", title: player.isShuffled ? "Turn shuffle off" : "Turn shuffle on",
+                          symbol: "shuffle", hint: "⌘S", keywords: "shuffle random order mode") { player.toggleShuffle() })
 
         list.append(.init(id: "view:sidebar", group: "View", title: model.sidebarHidden ? "Show sidebar" : "Hide sidebar",
                           symbol: "sidebar.left", hint: "⌘B", keywords: "toggle sidebar panel collapse") { model.toggleSidebar() })
@@ -204,10 +243,16 @@ struct CommandPalette: View {
                               symbol: "arrow.up.left.and.arrow.down.right", hint: "⇧⌘F",
                               keywords: "full player fullscreen mode big artwork") { model.toggleNowPlayingMode() })
         }
+        list.append(.init(id: "view:widths", group: "View", title: "Reset panel widths", subtitle: "Sidebar and Now panel back to their usual size",
+                          symbol: "rectangle.split.3x1", keywords: "resize sidebar now panel width default") { model.resetPanelWidths() })
 
         list.append(.init(id: "lib:reload", group: "Library", title: "Reload library", symbol: "arrow.triangle.2.circlepath", keywords: "refresh playlists") {
             model.reloadLibrary()
         })
+        if model.provider.isLive, model.canPlayCatalog == false {
+            list.append(.init(id: "lib:subscribe", group: "Library", title: "Subscribe to Apple Music", subtitle: "Playback needs a subscription",
+                              symbol: "music.note", keywords: "subscription plan buy") { model.openSubscribePage() })
+        }
         if !model.provider.isLive {
             list.append(.init(id: "lib:connect", group: "Library", title: "Connect Apple Music", symbol: "applelogo", keywords: "sign in account library") {
                 model.phase = .onboarding

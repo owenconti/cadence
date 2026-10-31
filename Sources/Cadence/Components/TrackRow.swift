@@ -99,7 +99,9 @@ struct TrackRow: View {
     }
 
     private func play() {
-        let index = context.firstIndex(of: track) ?? 0
+        // The row's own place in the list: a playlist can hold a song twice.
+        let index = number.map { $0 - 1 }.flatMap { context.indices.contains($0) && context[$0].id == track.id ? $0 : nil }
+            ?? context.firstIndex(of: track) ?? 0
         model.play(context.isEmpty ? [track] : context, startAt: index, from: source)
     }
 }

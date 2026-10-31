@@ -36,7 +36,17 @@ BIN="$(swift build -c "$CONFIG" --show-bin-path)/Cadence"
 
 mkdir -p build
 STAGE="$PWD/build/.staging-$$/Cadence.app"
-trap 'rm -rf "$(dirname "$STAGE")"' EXIT
+OLD="$(dirname "$STAGE")/old.app"
+# On any exit: if the swap below was cut short, put the previous app back
+# before the staging folder (which holds it) is removed.
+cleanup() {
+    if [[ ! -d "$APP" && -d "$OLD" ]]; then
+        mv "$OLD" "$APP" && echo "warning: install didn't finish; kept the previous $APP" >&2
+    fi
+    rm -rf "$(dirname "$STAGE")"
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$BIN" "$STAGE/Contents/MacOS/Cadence"
 cp Support/AppIcon/Cadence.icns "$STAGE/Contents/Resources/Cadence.icns"
@@ -44,8 +54,9 @@ sed "s/\$(BUNDLE_ID)/$BUNDLE_ID/" Support/Info.plist > "$STAGE/Contents/Info.pli
 codesign --force --sign "$SIGN_IDENTITY" --options runtime "$STAGE" >/dev/null
 
 # Swap by rename, never by overwriting files a running copy may have mapped.
-OLD="$(dirname "$STAGE")/old.app"
+# If the second rename fails or is interrupted, cleanup puts the previous
+# app back.
 mkdir -p "$(dirname "$APP")"
-[[ -d "$APP" ]] && mv "$APP" "$OLD"
+if [[ -d "$APP" ]]; then mv "$APP" "$OLD"; fi
 mv "$STAGE" "$APP"
 echo "Built $APP ($BUNDLE_ID, signed with '$SIGN_IDENTITY')"

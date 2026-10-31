@@ -16,6 +16,12 @@ import notify
 /// - `sidebar-hide`, `sidebar-show`: ⌘B. `now-playing-on`, `now-playing-off`: ⇧⌘F.
 ///   Set rather than toggle, so a resent notification is harmless.
 /// - `focus-filter`: opens Playlists and puts the cursor in its filter field.
+/// - `press`: presses the key named in `press.txt` ("<number> cmd-b"; also
+///   shift-cmd-f, cmd-k, esc) as the keyboard would, so menus, shortcuts and
+///   key handling all see it. Numbered, so a late or repeated notification
+///   never presses twice; `pressed` in state.json says which number ran.
+/// - `select-artists`: goes to Artists.
+/// - `play-duplicates`: plays A, B, A, C from the second A.
 /// - `type-glass`: types "glass" into the window, as the keyboard would.
 /// - `open-largest`: opens the biggest playlist from Discover and records the
 ///   longest main-thread stall during the page transition (`stallMs`) and over
@@ -24,6 +30,12 @@ import notify
 enum CheckHooks {
     private static var tokens: [Int32] = []
     private static var stallMs: Double = 0
+    private static var lastPress = ""
+    private static var activity: NSObjectProtocol?
+    private static let keys: [String: (String, UInt16, NSEvent.ModifierFlags)] = [
+        "cmd-b": ("b", 11, .command), "shift-cmd-f": ("f", 3, [.command, .shift]),
+        "cmd-k": ("k", 40, .command), "esc": ("\u{1b}", 53, []),
+    ]
     private static var stallMsOverall: Double = 0
 
     /// Samples the main thread every 4 ms and reports the longest gap, the
@@ -48,6 +60,9 @@ enum CheckHooks {
         guard RunMode.current == .check, let path = ProcessInfo.processInfo.environment["CADENCE_CHECK_DIR"] else { return }
         let dir = URL(fileURLWithPath: path)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // A check copy runs in the background, where App Nap would otherwise
+        // hold its notifications and timers back by seconds.
+        activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Automated check")
         listen("snapshot") { write(model, to: dir) }
         listen("play") {
             Task {
@@ -64,6 +79,23 @@ enum CheckHooks {
         listen("palette-close") { model.palette.dismiss() }
         listen("sidebar-hide") { if !model.sidebarHidden { model.toggleSidebar() } }
         listen("sidebar-show") { if model.sidebarHidden { model.toggleSidebar() } }
+        listen("press") {
+            // `press.txt` holds "<number> <key>"; each number is pressed once,
+            // however many times (or late) the notification arrives.
+            let line = (try? String(contentsOf: dir.appendingPathComponent("press.txt"), encoding: .utf8)) ?? ""
+            let parts = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, parts[0] != lastPress, let (chars, code, modifiers) = keys[parts[1]] else { return }
+            lastPress = parts[0]
+            press(chars, keyCode: code, modifiers: modifiers)
+        }
+        listen("select-artists") { model.select(.artists) }
+        listen("play-duplicates") {
+            Task {
+                guard let playlist = model.playlists.first,
+                      let tracks = try? await model.provider.tracks(in: playlist), tracks.count >= 3 else { return }
+                model.play([tracks[0], tracks[1], tracks[0], tracks[2]], startAt: 2, shuffled: false, from: .playlist(playlist))
+            }
+        }
         listen("focus-filter") {
             model.select(.playlists)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -141,6 +173,12 @@ enum CheckHooks {
             "updateReady": model.update.isReady,
             "paletteOpen": model.palette.isPresented,
             "paletteQuery": model.palette.query,
+            "pressed": lastPress,
+            "snapshot": (try? String(contentsOf: dir.appendingPathComponent("snapshot.txt"), encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            "queueIDs": model.player.queue.map(\.id).joined(separator: ","),
+            "index": model.player.index ?? -1,
+            "upNextAll": model.player.upNext.map(\.id).joined(separator: ","),
             "filterText": editableFields(in: NSApp.appWindow?.contentView).filter { !($0 is FocusingTextField) }.map(\.stringValue).joined(),
             "sidebarHidden": model.sidebarHidden,
             "nowPlayingMode": model.nowPlayingMode,
@@ -162,5 +200,17 @@ enum CheckHooks {
         guard let view else { return [] }
         let own = (view as? NSTextField).flatMap { $0.isEditable ? [$0] : nil } ?? []
         return own + view.subviews.flatMap { editableFields(in: $0) }
+    }
+
+    /// A key press delivered through the app, as if typed.
+    private static func press(_ chars: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        guard let window = NSApp.appWindow else { return }
+        for kind in [NSEvent.EventType.keyDown, .keyUp] {
+            if let event = NSEvent.keyEvent(with: kind, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: chars,
+                                            charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode) {
+                NSApp.sendEvent(event)
+            }
+        }
     }
 }

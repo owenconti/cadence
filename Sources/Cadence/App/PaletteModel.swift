@@ -18,6 +18,9 @@ final class PaletteModel {
         /// Extra words the query also matches, beyond the title.
         var keywords = ""
         var action: @MainActor () -> Void
+        /// Songs: ⌘↩ plays it next, ⌥↩ adds it to the queue.
+        var playNext: (@MainActor () -> Void)?
+        var addToQueue: (@MainActor () -> Void)?
 
         func matches(_ query: String) -> Bool {
             query.isEmpty || title.localizedCaseInsensitiveContains(query) || keywords.localizedCaseInsensitiveContains(query)
@@ -44,10 +47,18 @@ final class PaletteModel {
         selection = (selection + delta + entries.count) % entries.count
     }
 
-    func runSelection() {
+    enum Run { case open, playNext, addToQueue }
+
+    func runSelection(_ run: Run = .open) {
         guard entries.indices.contains(selection) else { return }
         let entry = entries[selection]
+        let action: (@MainActor () -> Void)? = switch run {
+        case .open: entry.action
+        case .playNext: entry.playNext
+        case .addToQueue: entry.addToQueue
+        }
+        guard let action else { return }
         dismiss()
-        entry.action()
+        action()
     }
 }

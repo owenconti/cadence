@@ -48,6 +48,13 @@ struct NowPanel: View {
             Scrubber()
             TransportControls()
 
+            if let notice = model.player.notice {
+                Label(notice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(2)
+                    .transition(.opacity)
+            }
             QueueHeader()
             UpNextList()
                 .frame(maxHeight: .infinity)
@@ -136,14 +143,15 @@ struct UpNextList: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let upcoming = Array(model.player.upNext)
+        let upcoming = model.player.upNext
         if upcoming.isEmpty {
             EmptyNote(symbol: "text.append", title: "Queue is empty", message: "Use “Play Next” or “Add to Queue” on any song.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(upcoming) { track in
-                        QueueRow(track: track)
+                    // By queue position: the same song can be queued twice.
+                    ForEach(upcoming.indices, id: \.self) { i in
+                        QueueRow(track: upcoming[i], queueIndex: i)
                     }
                 }
                 .padding(.vertical, 8)
@@ -156,6 +164,7 @@ struct UpNextList: View {
 private struct QueueRow: View {
     @Environment(AppModel.self) private var model
     let track: TrackItem
+    let queueIndex: Int
     @State private var hovering = false
 
     var body: some View {
@@ -175,7 +184,7 @@ private struct QueueRow: View {
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? Theme.card : .clear))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { model.player.jump(to: track) }
+        .onTapGesture { model.player.jump(toQueueIndex: queueIndex) }
         .contextMenu { TrackMenu(track: track) }
     }
 }

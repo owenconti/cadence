@@ -60,7 +60,9 @@ final class AppModel {
     private(set) var playlistPlayedAt = UserDefaults.standard.dictionary(forKey: AppModel.playedKey) as? [String: Date] ?? [:]
     /// Names of playlists Apple Music lists as recently played, newest first.
     private(set) var recentPlaylistNames: [String] = []
-    @ObservationIgnored private var countingSizes = false
+    /// Playlists whose songs couldn't be counted; Largest puts them last.
+    private(set) var uncountedPlaylists: Set<String> = []
+    @ObservationIgnored private var countTask: Task<Void, Never>?
     @ObservationIgnored private var countedSizes = false
     /// Discover's feed, loaded behind the splash and kept until the library reloads.
     var discoverFeed: DiscoverFeed?
@@ -72,6 +74,9 @@ final class AppModel {
     /// Playback and place carried over from the copy that restarted into this one.
     @ObservationIgnored private var handoff: Handoff?
     @ObservationIgnored private var preloading = false
+    /// Bumped by every switch of library (connecting, the demo), so a slow
+    /// one finishing late can't undo a newer choice.
+    @ObservationIgnored private var sourceGeneration = 0
     private static let sourceKey = "cadence.source"
     private static let sizesKey = "cadence.playlistSizes"
     private static let sidebarHiddenKey = "cadence.sidebarHidden"
@@ -162,11 +167,14 @@ final class AppModel {
     }
 
     func startDemo() {
+        sourceGeneration += 1
+        let generation = sourceGeneration
         Task {
             let started = Date()
             phase = .launching
             launchStatus = "Loading the demo library…"
             await load(DemoProvider(), backend: .demo, status: launchStatus)
+            guard generation == sourceGeneration else { return }
             UserDefaults.standard.set("demo", forKey: Self.sourceKey)
             await reveal(.ready, since: started)
         }
@@ -175,10 +183,14 @@ final class AppModel {
     /// Connects to Apple Music and loads the library. Returns whether the app
     /// can be shown; otherwise `access` says why not.
     private func connectAppleMusic() async -> Bool {
+        sourceGeneration += 1
+        let generation = sourceGeneration
         access = .connecting
         launchStatus = "Connecting to Apple Music…"
 
-        switch await MusicAuthorization.request() {
+        let status = await MusicAuthorization.request()
+        guard generation == sourceGeneration else { return false }
+        switch status {
         case .authorized: break
         case .denied:
             access = .denied
@@ -196,13 +208,15 @@ final class AppModel {
         do {
             playlists = try await provider.playlists()
         } catch {
-            access = .failed(error.localizedDescription)
+            if generation == sourceGeneration { access = .failed(error.localizedDescription) }
             return false
         }
+        guard generation == sourceGeneration else { return false }
 
         access = .idle
         phase = .launching
         await load(provider, backend: .musicKit, playlists: playlists)
+        guard generation == sourceGeneration else { return false }
         UserDefaults.standard.set("musicKit", forKey: Self.sourceKey)
         Task { await watchSubscription() }
         return true
@@ -231,6 +245,7 @@ final class AppModel {
         player.stop()
         canPlayCatalog = nil
         player.backend = backend
+        resetPlaylistCounts()
         self.provider = provider
         providerGeneration += 1
         discoverFeed = nil
@@ -248,13 +263,19 @@ final class AppModel {
         preloading = true
         Task {
             async let feed = try? await provider.discover()
+            let loaded: [PlaylistItem]
             if let playlists {
-                self.playlists = playlists
+                loaded = playlists
             } else {
-                self.playlists = (try? await provider.playlists()) ?? []
+                loaded = (try? await provider.playlists()) ?? []
             }
+            // Another library took over while this one loaded.
+            guard self.provider === provider else { return }
+            self.playlists = loaded
             self.playlistsLoaded = true
-            if self.discoverFeed == nil { self.discoverFeed = await feed }
+            let feedValue = await feed
+            guard self.provider === provider else { return }
+            if self.discoverFeed == nil { self.discoverFeed = feedValue }
             self.preloading = false
             await self.loadPlaylistOrder()
         }
@@ -268,7 +289,7 @@ final class AppModel {
     func reloadLibrary() {
         discoverFeed = nil
         providerGeneration += 1
-        Task { await refreshPlaylists() }
+        Task { await refreshPlaylists(recount: true) }
     }
 
     // MARK: Restart
@@ -295,8 +316,10 @@ final class AppModel {
         let provider = self.provider
         guard RunMode.current != .snapshots,
               let saved = await playbackStore.load(lookup: { ids in (try? await provider.tracks(withIDs: ids)) ?? [] }),
+              self.provider === provider,
               saved.position.live == provider.isLive,
-              let start = saved.tracks.firstIndex(where: { $0.id == saved.position.trackID }) else { return }
+              let start = saved.position.index.flatMap({ saved.tracks.indices.contains($0) && saved.tracks[$0].id == saved.position.trackID ? $0 : nil })
+                ?? saved.tracks.firstIndex(where: { $0.id == saved.position.trackID }) else { return }
         let playing = keepPlaying && saved.position.isPlaying
         let elapsed = playing ? Date().timeIntervalSince(saved.position.savedAt) : 0
         let byID = Dictionary(saved.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -313,24 +336,29 @@ final class AppModel {
         var refreshed = 0
         for batch in [first, rest] {
             let artwork = await live.freshArtwork(for: batch)
+            guard self.provider === provider else { return }
             player.refreshArtwork(artwork)
             refreshed += artwork.count
         }
         Self.log.info("refreshed artwork for \(refreshed, privacy: .public) of \(ids.count, privacy: .public) restored songs")
     }
 
-    func refreshPlaylists() async {
-        if let fresh = try? await provider.playlists() {
+    func refreshPlaylists(recount: Bool = false) async {
+        let provider = self.provider
+        if let fresh = try? await provider.playlists(), self.provider === provider {
             playlists = fresh
             playlistsLoaded = true
         }
-        await loadPlaylistOrder()
+        await loadPlaylistOrder(recount: recount)
     }
 
     /// What the Recent and Largest sorts need.
-    private func loadPlaylistOrder() async {
-        recentPlaylistNames = await provider.recentlyPlayedPlaylistNames()
-        await countPlaylistSizes()
+    private func loadPlaylistOrder(recount: Bool = false) async {
+        let provider = self.provider
+        let names = await provider.recentlyPlayedPlaylistNames()
+        guard self.provider === provider else { return }
+        recentPlaylistNames = names
+        countPlaylistSizes(recount: recount)
     }
 
     /// The Playlists page's order.
@@ -366,32 +394,57 @@ final class AppModel {
     }
 
     /// Counts the songs in playlists that don't say, a few at a time, so the
-    /// Largest sort and the song counts fill in as each one finishes.
-    private func countPlaylistSizes() async {
-        guard !countingSizes else { return }
-        countingSizes = true
-        defer { countingSizes = false }
+    /// Largest sort and the song counts fill in as each one finishes. Counts
+    /// everything the first time a launch and on `recount` (Reload library);
+    /// otherwise only playlists without a count, which retries failed ones.
+    private func countPlaylistSizes(recount: Bool = false) {
+        let everything = recount || !countedSizes
+        let pending = playlists.filter { $0.trackCount == nil && (everything || playlistSizes[$0.id] == nil) }
+        guard !pending.isEmpty else { return }
+        // One count at a time; a recount replaces one under way.
+        if countTask != nil, !recount { return }
+        countTask?.cancel()
         let provider = self.provider
-        // Everything once a launch (playlists change), then only new ones.
-        let pending = playlists.filter { $0.trackCount == nil && (!countedSizes || playlistSizes[$0.id] == nil) }
-        var queue = pending[...]
-        await withTaskGroup(of: (String, Int?).self) { group in
-            func next() {
-                guard let playlist = queue.popFirst() else { return }
-                group.addTask { @MainActor in (playlist.id, (try? await provider.tracks(in: playlist))?.count) }
+        uncountedPlaylists.subtract(pending.map(\.id))
+        countTask = Task {
+            var queue = pending[...]
+            await withTaskGroup(of: (String, Int?).self) { group in
+                func next() {
+                    guard let playlist = queue.popFirst() else { return }
+                    group.addTask { @MainActor in (playlist.id, (try? await provider.tracks(in: playlist))?.count) }
+                }
+                for _ in 0..<4 { next() }
+                for await (id, count) in group {
+                    guard !Task.isCancelled, provider === self.provider else { continue }
+                    if let count {
+                        playlistSizes[id] = count
+                    } else {
+                        uncountedPlaylists.insert(id)
+                    }
+                    next()
+                }
             }
-            for _ in 0..<4 { next() }
-            for await (id, count) in group {
-                if let count { playlistSizes[id] = count }
-                next()
-            }
+            guard !Task.isCancelled, provider === self.provider else { return }
+            countedSizes = true
+            countTask = nil
+            UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
         }
-        guard provider === self.provider else { return }
-        countedSizes = true
-        UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
+    }
+
+    /// Stops counting for a library that's being replaced.
+    private func resetPlaylistCounts() {
+        countTask?.cancel()
+        countTask = nil
+        countedSizes = false
+        uncountedPlaylists = []
     }
 
     // MARK: Layout
+
+    func resetPanelWidths() {
+        sidebarWidth = 232
+        nowPanelWidth = 340
+    }
 
     func toggleSidebar() {
         sidebarHidden.toggle()
@@ -494,7 +547,9 @@ final class AppModel {
             switch event.keyCode {
             case 125: palette.move(1); return true
             case 126: palette.move(-1); return true
-            case 36, 76: palette.runSelection(); return true
+            case 36, 76:
+                palette.runSelection(modifiers == .command ? .playNext : modifiers == .option ? .addToQueue : .open)
+                return true
             case 53: palette.dismiss(); return true
             default: return false
             }

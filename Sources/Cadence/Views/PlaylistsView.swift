@@ -9,7 +9,8 @@ struct PlaylistsView: View {
         let playlists = visible
         // Until the playlists (or, for Largest, their song counts) are in,
         // cards of the same size stand in so nothing moves when they arrive.
-        let waiting = !model.playlistsLoaded || (sort == .size && model.playlists.contains { model.size(of: $0) == nil })
+        let waiting = !model.playlistsLoaded
+            || (sort == .size && playlists.contains { model.size(of: $0) == nil && !model.uncountedPlaylists.contains($0.id) })
         PageScroll {
             HStack(alignment: .lastTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -42,11 +43,12 @@ struct PlaylistsView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
             ForEach(playlists) { playlist in
                 let size = model.size(of: playlist)
+                let counting = size == nil && model.provider.isLive && !model.uncountedPlaylists.contains(playlist.id)
                 MediaCard(
                     title: playlist.name,
                     // Apple Music playlists say how many songs once counted.
-                    subtitle: size.map { "\($0) songs" } ?? (model.provider.isLive ? "000 songs" : playlist.curator ?? "Playlist"),
-                    subtitlePending: size == nil && model.provider.isLive,
+                    subtitle: size.map { "\($0) songs" } ?? (counting ? "000 songs" : playlist.curator ?? "Playlist"),
+                    subtitlePending: counting,
                     artwork: playlist.artwork,
                     width: nil
                 ) {
@@ -167,7 +169,7 @@ struct CollectionDetailView: View {
                     if shown.isEmpty {
                         EmptyNote(symbol: "magnifyingglass", title: all.isEmpty ? "No tracks" : "No matches for “\(filter)”")
                     }
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
+                    ForEach(Array(shown.enumerated()), id: \.offset) { i, track in
                         TrackRow(track: track, number: i + 1, context: shown, showArtwork: showArtwork, showAlbum: showArtwork)
                             .environment(\.queueSource, source)
                     }

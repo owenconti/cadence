@@ -9,11 +9,12 @@ import SwiftUI
 final class NowPlaying {
     private let player: Player
     private var timer: Timer?
-    private var published: (id: String?, playing: Bool, shuffled: Bool, position: TimeInterval, at: Date)?
-    private var artwork: (id: String, image: MPMediaItemArtwork?)?
+    private var published: (id: String?, artwork: ArtworkSource?, playing: Bool, shuffled: Bool, position: TimeInterval, at: Date)?
+    private let artwork = NowPlayingArtwork()
 
     init(player: Player) {
         self.player = player
+        artwork.loaded = { [weak self] in self?.publish() }
         let commands = MPRemoteCommandCenter.shared()
         handle(commands.playCommand) { $0.setPlaying(true) }
         handle(commands.pauseCommand) { $0.setPlaying(false) }
@@ -60,7 +61,8 @@ final class NowPlaying {
         let id = player.current?.id
         guard let last = published else { return publish() }
         let expected = last.position + (last.playing ? Date().timeIntervalSince(last.at) : 0)
-        if id != last.id || player.isPlaying != last.playing || player.isShuffled != last.shuffled
+        // A restored song's artwork is swapped for a working copy after launch.
+        if id != last.id || player.current?.artwork != last.artwork || player.isPlaying != last.playing || player.isShuffled != last.shuffled
             || abs(player.position - expected) > 1.5 {
             publish()
         }
@@ -68,7 +70,7 @@ final class NowPlaying {
 
     private func publish() {
         let center = MPNowPlayingInfoCenter.default()
-        published = (player.current?.id, player.isPlaying, player.isShuffled, player.position, Date())
+        published = (player.current?.id, player.current?.artwork, player.isPlaying, player.isShuffled, player.position, Date())
         MPRemoteCommandCenter.shared().changeShuffleModeCommand.currentShuffleType = player.isShuffled ? .items : .off
         guard let track = player.current else {
             center.nowPlayingInfo = nil
@@ -83,22 +85,11 @@ final class NowPlaying {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: player.position,
             MPNowPlayingInfoPropertyPlaybackRate: player.isPlaying ? 1.0 : 0.0,
         ]
-        if let artwork, artwork.id == track.id, let image = artwork.image {
-            info[MPMediaItemPropertyArtwork] = image
-        } else if artwork?.id != track.id {
-            loadArtwork(for: track)
+        if let image = artwork.image(for: track) {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         }
         center.nowPlayingInfo = info
         center.playbackState = player.isPlaying ? .playing : .paused
-    }
-
-    private func loadArtwork(for track: TrackItem) {
-        artwork = (track.id, nil)
-        Task {
-            guard let image = await Self.image(for: track.artwork), artwork?.id == track.id else { return }
-            artwork = (track.id, MPMediaItemArtwork(boundsSize: image.size) { _ in image })
-            publish()
-        }
     }
 
     static func image(for source: ArtworkSource) async -> NSImage? {
@@ -117,5 +108,28 @@ final class NowPlaying {
         case .none:
             return nil
         }
+    }
+}
+
+/// Control Center's picture of the playing song. Loads once per song and
+/// artwork, so when a restored song's dead artwork is swapped for a working
+/// copy, that copy loads instead of the failed attempt sticking.
+@MainActor
+final class NowPlayingArtwork {
+    private var current: (id: String, source: ArtworkSource, image: NSImage?)?
+    /// Called when an image arrives for the song that's still current.
+    var loaded: () -> Void = {}
+
+    /// The image if it's ready; otherwise starts loading it and returns nil.
+    func image(for track: TrackItem) -> NSImage? {
+        if let current, current.id == track.id, current.source == track.artwork { return current.image }
+        current = (track.id, track.artwork, nil)
+        Task {
+            let image = await NowPlaying.image(for: track.artwork)
+            guard let image, let current, current.id == track.id, current.source == track.artwork else { return }
+            self.current?.image = image
+            loaded()
+        }
+        return nil
     }
 }

@@ -44,9 +44,17 @@ enum ArtworkAudit {
         func addTracks(_ surface: String, _ tracks: [TrackItem]) {
             for track in tracks { add(surface, "\(track.title) – \(track.artistName)", track.artwork) }
         }
+        // A request that fails would quietly leave its surface untested.
+        var problems: [String] = []
+        func fetch<T>(_ what: String, _ work: () async throws -> T) async -> T? {
+            do { return try await work() } catch {
+                problems.append("FAIL couldn't load \(what): \(error.localizedDescription)")
+                return nil
+            }
+        }
 
         // Discover.
-        if let feed = try? await provider.discover() {
+        if let feed = await fetch("Discover", { try await provider.discover() }) {
             for item in feed.recent { add("Discover: Jump back in", item.title, item.artwork) }
             for shelf in feed.shelves { for item in shelf.items { add("Discover: \(shelf.title)", item.title, item.artwork) } }
             addTracks("Discover: Trending", feed.trending)
@@ -54,11 +62,11 @@ enum ArtworkAudit {
         }
 
         // Playlists: the sidebar and list, each page's header, and its songs.
-        let playlists = (try? await provider.playlists()) ?? []
+        let playlists = await fetch("playlists", { try await provider.playlists() }) ?? []
         var songs: [TrackItem] = []
         for playlist in playlists {
             add("Playlists", playlist.name, playlist.artwork)
-            let tracks = (try? await provider.tracks(in: playlist)) ?? []
+            let tracks = await fetch("the songs of \(playlist.name)", { try await provider.tracks(in: playlist) }) ?? []
             addTracks("Playlist songs: \(playlist.name)", Array(tracks.prefix(20)))
             songs += tracks.prefix(20)
         }
@@ -68,30 +76,46 @@ enum ArtworkAudit {
         var albumSources = Array(restored?.tracks.prefix(10) ?? [])
         albumSources += stride(from: 0, to: songs.count, by: max(1, songs.count / 20)).map { songs[$0] }
         var seenAlbums = Set<String>()
+        var albumsMissing = 0
         for track in albumSources {
-            guard let album = await provider.album(for: track), seenAlbums.insert(album.id).inserted else { continue }
+            guard let album = await provider.album(for: track) else { albumsMissing += 1; continue }
+            guard seenAlbums.insert(album.id).inserted else { continue }
             add("Album pages", "\(album.title) – \(album.artistName)", album.artwork)
-            addTracks("Album songs: \(album.title)", Array(((try? await provider.tracks(in: album)) ?? []).prefix(5)))
+            addTracks("Album songs: \(album.title)", Array((await fetch("the songs of \(album.title)", { try await provider.tracks(in: album) }) ?? []).prefix(5)))
+        }
+        if albumsMissing * 2 > albumSources.count {
+            problems.append("FAIL couldn't find the album for \(albumsMissing) of \(albumSources.count) songs")
         }
 
         // Artists: the list, and artist pages (opened from the list or a song).
-        let artists = (try? await provider.artists()) ?? []
+        let artists = await fetch("artists", { try await provider.artists() }) ?? []
         for artist in artists { add("Artists", artist.name, artist.artwork) }
         var pageArtists = Array(artists.prefix(2))
         if let track = restored?.tracks.first {
             pageArtists.append(ArtistItem(id: "name:\(track.artistName)", name: track.artistName, genre: nil, artwork: .none))
         }
+        var similarPage: ArtistItem?
         for artist in pageArtists {
-            guard let detail = try? await provider.detail(for: artist) else { continue }
+            guard let detail = await fetch("the artist page for \(artist.name)", { try await provider.detail(for: artist) }) else { continue }
+            if similarPage == nil { similarPage = detail.similar.first }
             add("Artist pages", detail.artist.name, detail.artist.artwork)
             addTracks("Artist top songs: \(detail.artist.name)", detail.topSongs)
             for album in detail.albums.prefix(12) { add("Artist albums: \(detail.artist.name)", album.title, album.artwork) }
             for similar in detail.similar { add("Similar artists: \(detail.artist.name)", similar.name, similar.artwork) }
         }
 
+        // A catalog artist's page (from "Fans also like" or search) opens that
+        // exact artist.
+        if let similarPage, let detail = await fetch("the artist page for \(similarPage.name)", { try await provider.detail(for: similarPage) }) {
+            add("Artist pages", detail.artist.name, detail.artist.artwork)
+            if detail.artist.id != similarPage.id {
+                problems.append("FAIL opening \(similarPage.name) (\(similarPage.id)) showed \(detail.artist.name) (\(detail.artist.id))")
+            }
+        }
+
         // ⌘K search.
         if let term = restored?.tracks.first?.artistName ?? artists.first?.name,
-           let results = try? await provider.search(term) {
+           let results = await fetch("search", { try await provider.search(term) }) {
             addTracks("Search", results.songs)
             for artist in results.artists { add("Search", artist.name, artist.artwork) }
             for album in results.albums { add("Search", album.title, album.artwork) }
@@ -153,7 +177,9 @@ enum ArtworkAudit {
            let stub = try? await fresh.with([.albums]).albums?.first, let artwork = stub.artwork {
             controls.append(("an album reached through its song", artwork))
         }
-        if controls.isEmpty { failures.append("FAIL controls: no saved queue to build them from; play something first") }
+        if controls.count < 2 {
+            failures.append("FAIL controls: only \(controls.count) of 2 could be built (they come from the saved queue; play something first)")
+        }
         for (name, artwork) in controls {
             if await ArtworkSnapshot.image(artwork, size: 120, timeout: .seconds(15)) != nil {
                 failures.append("FAIL control drew: \(name) is known not to load, so this test can't detect broken artwork")
@@ -162,15 +188,38 @@ enum ArtworkAudit {
             }
         }
 
-        // Control Center's artwork for the playing song.
+        // Control Center's artwork for the playing song, through its loader as
+        // after a relaunch: first the saved (dead) artwork, which fails, then
+        // the refreshed copy, which must load rather than the failure sticking.
         if let current = restored?.tracks.first(where: { $0.id == restored?.position.trackID }) {
-            let fresh = await provider.freshArtwork(for: [current.id])[current.id] ?? current.artwork
-            if await NowPlaying.image(for: fresh) == nil, fresh != .none {
-                failures.append("FAIL Control Center: no artwork for \(current.title)")
+            let loader = NowPlayingArtwork()
+            _ = loader.image(for: current)
+            try? await Task.sleep(for: .seconds(9))
+            var refreshed = current
+            refreshed.artwork = await provider.freshArtwork(for: [current.id])[current.id] ?? current.artwork
+            var image = loader.image(for: refreshed)
+            for _ in 0..<150 where image == nil {
+                try? await Task.sleep(for: .milliseconds(100))
+                image = loader.image(for: refreshed)
+            }
+            if image == nil, refreshed.artwork != .none {
+                failures.append("FAIL Control Center: no artwork for \(current.title) after its artwork was refreshed")
             } else {
                 drawn += 1
+                lines.append("ok   Control Center: artwork loads once a restored song's artwork is refreshed")
             }
+        } else {
+            failures.append("FAIL Control Center: no saved queue to test with; play something first")
         }
+
+        // Every surface must have been tested, or a PASS means little.
+        var required = ["Discover", "Playlists", "Playlist songs", "Album pages", "Album songs", "Artists", "Artist pages",
+                        "Artist top songs", "Search", "Restored queue"]
+        if restored == nil { required.removeAll { $0 == "Restored queue" } }
+        for surface in required where !items.contains(where: { $0.surface.hasPrefix(surface) }) {
+            failures.append("FAIL nothing tested for \(surface)")
+        }
+        failures = problems + failures
 
         lines.insert(failures.isEmpty ? "PASS" : "FAIL", at: 0)
         lines.insert("\(drawn) of \(drawn + failures.count) artworks drew in \(Int(Date().timeIntervalSince(started))) s, across \(Set(items.map(\.surface)).count) surfaces", at: 1)

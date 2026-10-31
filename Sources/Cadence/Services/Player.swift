@@ -21,7 +21,13 @@ final class Player {
     private(set) var isShuffled = false
     /// The queue's own order, to return to when shuffle is turned off.
     @ObservationIgnored private(set) var unshuffled: [TrackItem]?
-    var lastError: String?
+    /// A short message about something that didn't work (a song Apple Music
+    /// wouldn't queue), shown in the Now panel for a few seconds.
+    private(set) var notice: String?
+    @ObservationIgnored private var noticeClear: Task<Void, Never>?
+    /// Bumped whenever Apple Music is given a new queue, so a start still
+    /// preparing for an older one gives up instead of acting on the new one.
+    @ObservationIgnored private var liveGeneration = 0
 
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var lastUnmatchedEntry: String?
@@ -74,7 +80,7 @@ final class Player {
         index = startIndex
         position = 0
         isPlaying = true
-        if backend == .musicKit { live { try await self.startLiveQueue(list, at: startIndex) } }
+        if backend == .musicKit { startLive(list, at: startIndex) }
     }
 
     /// Picks up a queue carried over from before a restart.
@@ -88,10 +94,7 @@ final class Player {
         index = start
         self.position = min(max(position, 0), tracks[start].duration)
         isPlaying = playing
-        if backend == .musicKit {
-            let resumeAt = self.position
-            live { try await self.startLiveQueue(tracks, at: start, from: resumeAt, autoplay: playing) }
-        }
+        if backend == .musicKit { startLive(tracks, at: start, from: self.position) }
     }
 
     func toggle() {
@@ -125,15 +128,14 @@ final class Player {
         position = 0
     }
 
-    func jump(to track: TrackItem) {
-        guard let target = queue.firstIndex(of: track) else { return }
-        if backend == .musicKit {
-            let list = queue
-            live { try await self.startLiveQueue(list, at: target) }
-        }
+    /// Plays the song at `target` in the queue. By position rather than by
+    /// song, since the same song can be queued more than once.
+    func jump(toQueueIndex target: Int) {
+        guard queue.indices.contains(target) else { return }
         index = target
         position = 0
         isPlaying = true
+        if backend == .musicKit { startLive(queue, at: target) }
     }
 
     func seek(to time: TimeInterval) {
@@ -142,22 +144,53 @@ final class Player {
     }
 
     func playNext(_ track: TrackItem) {
-        guard let index else { play([track]); return }
+        guard index != nil else { play([track]); return }
         // Mirrors Apple Music's queue exactly (no de-duplicating), so positions
-        // in the two stay aligned for syncing the current song.
-        queue.insert(track, at: index + 1)
-        if let current, let at = unshuffled?.firstIndex(of: current) { unshuffled?.insert(track, at: at + 1) }
-        if backend == .musicKit, let song = track.song {
-            live { try await ApplicationMusicPlayer.shared.queue.insert(song, position: .afterCurrentEntry) }
+        // in the two stay aligned for syncing the current song. With Apple
+        // Music, ours changes only once it has taken the song.
+        insertLive(track, position: .afterCurrentEntry) { [weak self] in
+            guard let self, let index = self.index else { return }
+            if let current = self.current, let at = self.unshuffled?.firstIndex(of: current) { self.unshuffled?.insert(track, at: at + 1) }
+            self.queue.insert(track, at: index + 1)
         }
     }
 
     func addToQueue(_ track: TrackItem) {
         guard index != nil else { play([track]); return }
-        queue.append(track)
-        unshuffled?.append(track)
-        if backend == .musicKit, let song = track.song {
-            live { try await ApplicationMusicPlayer.shared.queue.insert(song, position: .tail) }
+        insertLive(track, position: .tail) { [weak self] in
+            self?.queue.append(track)
+            self?.unshuffled?.append(track)
+        }
+    }
+
+    /// Runs `apply` once Apple Music has queued `track` (at once in demo
+    /// mode); if it won't, nothing changes and the Now panel says so.
+    private func insertLive(_ track: TrackItem, position: MusicPlayer.Queue.EntryInsertionPosition, apply: @escaping @MainActor () -> Void) {
+        guard backend == .musicKit else { return apply() }
+        guard let song = track.song else {
+            return report("Couldn't queue “\(track.title)”: Apple Music doesn't have it")
+        }
+        let generation = liveGeneration
+        Task { @MainActor in
+            do {
+                try await ApplicationMusicPlayer.shared.queue.insert(song, position: position)
+                // A new queue replaced the one this went into.
+                guard generation == self.liveGeneration else { return }
+                apply()
+            } catch {
+                Self.log.error("couldn't queue \(track.title, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                self.report("Couldn't queue “\(track.title)”: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func report(_ message: String) {
+        notice = message
+        noticeClear?.cancel()
+        noticeClear = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
         }
     }
 
@@ -204,8 +237,7 @@ final class Player {
         let liveUpcoming = Array(entries[next...])
         guard liveUpcoming.count == before.count else {
             Self.log.error("Apple Music has \(liveUpcoming.count, privacy: .public) songs up next, we have \(before.count, privacy: .public); rebuilding its queue")
-            let list = queue, pos = position, playing = isPlaying
-            live { try await self.startLiveQueue(list, at: index, from: pos, autoplay: playing) }
+            startLive(queue, at: index, from: position)
             return
         }
         // Each of our songs keeps its own Apple Music entry, now in the new order.
@@ -236,6 +268,7 @@ final class Player {
     }
 
     func stop() {
+        liveGeneration += 1
         if backend == .musicKit { ApplicationMusicPlayer.shared.stop() }
         queue = []
         source = nil
@@ -296,20 +329,32 @@ final class Player {
 
     // MARK: MusicKit
 
-    private func startLiveQueue(_ tracks: [TrackItem], at start: Int, from position: TimeInterval = 0, autoplay: Bool = true) async throws {
+    /// Gives Apple Music a new queue, starting at `start`. Whether it then
+    /// plays follows `isPlaying` as it is when preparing finishes, so a pause
+    /// in the meantime holds; a newer queue cancels this one.
+    private func startLive(_ tracks: [TrackItem], at start: Int, from position: TimeInterval = 0) {
+        liveGeneration += 1
+        let generation = liveGeneration
         let songs = tracks.compactMap(\.song)
-        guard !songs.isEmpty else { return }
+        guard !songs.isEmpty, tracks.indices.contains(start) else { return }
         let player = ApplicationMusicPlayer.shared
-        let first = tracks[start].song
-        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
-        try await player.prepareToPlay()
-        if position > 0 { player.playbackTime = position }
-        if autoplay { try await player.play() }
+        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: tracks[start].song)
+        live {
+            try await player.prepareToPlay()
+            guard generation == self.liveGeneration else { return }
+            if position > 0 { player.playbackTime = position }
+            if self.isPlaying { try await player.play() }
+        }
     }
 
     private func live(_ work: @escaping @MainActor () async throws -> Void) {
         Task { @MainActor in
-            do { try await work() } catch { self.lastError = error.localizedDescription }
+            do {
+                try await work()
+            } catch {
+                Self.log.error("Apple Music: \(error.localizedDescription, privacy: .public)")
+                self.report(error.localizedDescription)
+            }
         }
     }
 }

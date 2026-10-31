@@ -39,39 +39,48 @@ final class MusicKitProvider: MusicProvider {
 
     func playlists() async throws -> [PlaylistItem] {
         let response = try await MusicLibraryRequest<Playlist>().response()
-        return response.items.map(PlaylistItem.init)
+        return await everything(response.items).map(PlaylistItem.init)
     }
 
     func tracks(in playlist: PlaylistItem) async throws -> [TrackItem] {
         guard let playlist = playlist.playlist else { return [] }
         let detailed = try await playlist.with([.tracks])
-        return detailed.tracks?.compactMap(TrackItem.init(track:)) ?? []
+        return await everything(detailed.tracks).compactMap(TrackItem.init(track:))
     }
 
     func tracks(in album: AlbumItem) async throws -> [TrackItem] {
         guard let album = album.album else { return [] }
         let detailed = try await album.with([.tracks])
-        return detailed.tracks?.compactMap(TrackItem.init(track:)) ?? []
+        return await everything(detailed.tracks).compactMap(TrackItem.init(track:))
     }
 
     func artists() async throws -> [ArtistItem] {
         let response = try await MusicLibraryRequest<Artist>().response()
-        return response.items.map(ArtistItem.init)
+        return await everything(response.items).map {
+            var artist = ArtistItem($0)
+            artist.fromLibrary = true
+            return artist
+        }
     }
 
     func detail(for artist: ArtistItem) async throws -> ArtistDetail {
-        // Library artists are sparse; resolve to the catalog artist for
-        // top songs, discography and similar artists.
-        var search = MusicCatalogSearchRequest(term: artist.name, types: [Artist.self])
-        search.limit = 1
-        guard let catalog = try await search.response().artists.first else {
-            return ArtistDetail(artist: artist)
+        // A catalog artist (from search, similar artists) is used as is.
+        // Library artists are sparse and name-only ones have no item, so those
+        // resolve to the catalog artist of the same name.
+        var catalog = artist.fromLibrary ? nil : artist.artist
+        if catalog == nil {
+            var search = MusicCatalogSearchRequest(term: artist.name, types: [Artist.self])
+            search.limit = 10
+            let found = try await search.response().artists
+            catalog = found.first { $0.name.compare(artist.name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+                ?? found.first
         }
+        guard let catalog else { return ArtistDetail(artist: artist) }
         let detailed = try await catalog.with([.topSongs, .albums, .similarArtists])
         return ArtistDetail(
             artist: ArtistItem(detailed),
             topSongs: detailed.topSongs?.prefix(10).map(TrackItem.init(song:)) ?? [],
-            albums: detailed.albums?.map(AlbumItem.init) ?? [],
+            albums: await everything(detailed.albums).map(AlbumItem.init),
             similar: detailed.similarArtists?.prefix(12).map(ArtistItem.init) ?? []
         )
     }
@@ -109,6 +118,18 @@ final class MusicKitProvider: MusicProvider {
             ?? albums.first { same($0.title, track.albumTitle) }
             ?? byArtist.first
         return match.map(AlbumItem.init)
+    }
+
+    /// Every item in a relationship. MusicKit hands long ones over a batch
+    /// at a time (a big playlist, a long discography).
+    private func everything<Item: Decodable>(_ first: MusicItemCollection<Item>?) async -> [Item] {
+        guard var batch = first else { return [] }
+        var items = Array(batch)
+        while batch.hasNextBatch, items.count < 20_000, let next = try? await batch.nextBatch() {
+            items += next
+            batch = next
+        }
+        return items
     }
 
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
