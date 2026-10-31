@@ -1,6 +1,7 @@
 import Foundation
 import MusicKit
 import Observation
+import os
 
 /// Owns the play queue. In demo mode it simulates playback with a clock; in
 /// live mode it drives `ApplicationMusicPlayer` and mirrors its state.
@@ -17,6 +18,8 @@ final class Player {
     var lastError: String?
 
     @ObservationIgnored private var ticker: Task<Void, Never>?
+    @ObservationIgnored private var lastUnmatchedEntry: String?
+    private static let log = Logger(subsystem: "com.owenconti.cadence", category: "player")
     private let tickInterval: TimeInterval = 0.25
 
     var current: TrackItem? {
@@ -117,7 +120,8 @@ final class Player {
 
     func playNext(_ track: TrackItem) {
         guard let index else { play([track]); return }
-        queue.removeAll { $0 == track && $0 != current }
+        // Mirrors Apple Music's queue exactly (no de-duplicating), so positions
+        // in the two stay aligned for syncing the current song.
         queue.insert(track, at: index + 1)
         if backend == .musicKit, let song = track.song {
             live { try await ApplicationMusicPlayer.shared.queue.insert(song, position: .afterCurrentEntry) }
@@ -166,11 +170,41 @@ final class Player {
             let player = ApplicationMusicPlayer.shared
             position = player.playbackTime
             isPlaying = player.state.playbackStatus == .playing
-            if case .song(let song)? = player.queue.currentEntry?.item,
-               let match = queue.firstIndex(where: { $0.song?.id == song.id }), match != index {
+            syncCurrentEntry(player)
+        }
+    }
+
+    /// Follows Apple Music onto whichever song it's playing. Library songs can
+    /// report a different ID than the one queued, so match by position in its
+    /// queue (which mirrors ours), falling back to title and artist.
+    private func syncCurrentEntry(_ player: ApplicationMusicPlayer) {
+        guard let entry = player.queue.currentEntry else { return }
+        let entries = player.queue.entries
+        var match: Int?
+        if entries.count == queue.count, let position = entries.firstIndex(where: { $0.id == entry.id }),
+           queue[position].title == entry.title {
+            match = position
+        } else {
+            // The nearest song with the same title and artist to where we were.
+            let here = index ?? 0
+            match = queue.indices
+                .filter { queue[$0].title == entry.title && (entry.subtitle == nil || queue[$0].artistName == entry.subtitle) }
+                .min { abs($0 - here) < abs($1 - here) }
+        }
+        if let match {
+            if match != index {
+                Self.log.info("now playing #\(match, privacy: .public) \(entry.title, privacy: .public) (was #\(self.index ?? -1, privacy: .public))")
                 index = match
             }
+        } else if lastUnmatchedEntry != entry.id {
+            lastUnmatchedEntry = entry.id
+            Self.log.error("can't find \(entry.title, privacy: .public) – \(entry.subtitle ?? "", privacy: .public) in our queue of \(self.queue.count, privacy: .public); Apple Music has \(entries.count, privacy: .public) entries")
         }
+    }
+
+    /// For system controls (media keys, Control Center).
+    func setPlaying(_ playing: Bool) {
+        if playing != isPlaying { toggle() }
     }
 
     // MARK: MusicKit

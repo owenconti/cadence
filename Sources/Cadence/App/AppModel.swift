@@ -27,6 +27,8 @@ final class AppModel {
     let player = Player()
     let palette = PaletteModel()
     let update = AppUpdate()
+    /// Media keys and Control Center; only the user's own copy takes them.
+    @ObservationIgnored private var nowPlaying: NowPlaying?
 
     var section: SidebarSection = .discover
     private(set) var stack: [Route] = []
@@ -49,6 +51,7 @@ final class AppModel {
         installKeyMonitor()
         CheckHooks.install(self)
         // The snapshot tour moves between screens itself.
+        if RunMode.current == .normal { nowPlaying = NowPlaying(player: player) }
         guard RunMode.current != .snapshots else {
             phase = .onboarding
             return
