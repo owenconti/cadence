@@ -1,0 +1,207 @@
+import SwiftUI
+
+struct PlaylistsView: View {
+    @Environment(AppModel.self) private var model
+    @State private var filter = ""
+    @State private var sort: Sort = .recent
+
+    enum Sort: String, CaseIterable {
+        case recent = "Recent"
+        case name = "A–Z"
+        case size = "Largest"
+    }
+
+    var body: some View {
+        let _ = HotReload.observe()
+        Group {
+            let playlists = visible
+            PageScroll {
+                HStack(alignment: .lastTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Playlists").font(.display(34, .heavy))
+                        Text("\(model.playlists.count) playlists").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                    }
+                    Spacer()
+                    Picker("Sort", selection: $sort) {
+                        ForEach(Sort.allCases, id: \.self) { Text($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 210)
+                    FilterField(prompt: "Filter playlists", text: $filter)
+                }
+
+                if playlists.isEmpty {
+                    EmptyNote(symbol: "music.note.list", title: filter.isEmpty ? "No playlists yet" : "Nothing matches “\(filter)”")
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
+                        ForEach(playlists) { playlist in
+                            MediaCard(
+                                title: playlist.name,
+                                subtitle: playlist.trackCount.map { "\($0) songs" } ?? (playlist.curator ?? "Playlist"),
+                                artwork: playlist.artwork,
+                                width: nil
+                            ) {
+                                model.navigate(.playlist(playlist))
+                            } play: {
+                                Task { await model.play(.playlist(playlist)) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, -10)
+                }
+            }
+            .task { await model.refreshPlaylists() }
+        }
+        .hotReloadable()
+    }
+
+    private var visible: [PlaylistItem] {
+        let filtered = filter.isEmpty ? model.playlists : model.playlists.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+        switch sort {
+        case .recent: return filtered
+        case .name: return filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .size: return filtered.sorted { ($0.trackCount ?? 0) > ($1.trackCount ?? 0) }
+        }
+    }
+}
+
+struct PlaylistDetailView: View {
+    @Environment(AppModel.self) private var model
+    let playlist: PlaylistItem
+
+    var body: some View {
+        let _ = HotReload.observe()
+        Group {
+            CollectionDetailView(
+                kind: "Playlist",
+                title: playlist.name,
+                byline: playlist.curator,
+                summary: playlist.summary,
+                artwork: playlist.artwork,
+                showArtwork: true,
+                load: { try await model.provider.tracks(in: playlist) }
+            )
+        }
+        .hotReloadable()
+    }
+}
+
+struct AlbumDetailView: View {
+    @Environment(AppModel.self) private var model
+    let album: AlbumItem
+
+    var body: some View {
+        let _ = HotReload.observe()
+        Group {
+            CollectionDetailView(
+                kind: ["Album", album.year].compactMap { $0 }.joined(separator: " · "),
+                title: album.title,
+                byline: album.artistName,
+                onByline: { model.openArtist(id: album.artistID, name: album.artistName) },
+                summary: nil,
+                artwork: album.artwork,
+                showArtwork: false,
+                load: { try await model.provider.tracks(in: album) }
+            )
+        }
+        .hotReloadable()
+    }
+}
+
+/// Shared layout for anything that is a titled list of tracks.
+struct CollectionDetailView: View {
+    @Environment(AppModel.self) private var model
+    let kind: String
+    let title: String
+    let byline: String?
+    var onByline: (() -> Void)?
+    let summary: String?
+    let artwork: ArtworkSource
+    let showArtwork: Bool
+    let load: () async throws -> [TrackItem]
+
+    @State private var tracks: Loadable<[TrackItem]> = .loading
+    @State private var filter = ""
+
+    var body: some View {
+        let _ = HotReload.observe()
+        Group {
+            let all: [TrackItem] = if case .loaded(let t) = tracks { t } else { [] }
+            let shown = filter.isEmpty ? all : all.filter {
+                $0.title.localizedCaseInsensitiveContains(filter)
+                    || $0.artistName.localizedCaseInsensitiveContains(filter)
+                    || $0.albumTitle.localizedCaseInsensitiveContains(filter)
+            }
+
+            PageScroll {
+                HStack(alignment: .bottom, spacing: 30) {
+                    ArtworkView(source: artwork, cornerRadius: 16, resolution: 600)
+                        .frame(width: 230, height: 230)
+                        .shadow(color: artwork.palette.primary.opacity(0.35), radius: 40, y: 18)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(kind.uppercased()).eyebrow()
+                        Text(title)
+                            .font(.display(46, .heavy))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.5)
+                        if let summary {
+                            Text(summary).font(.system(size: 14)).foregroundStyle(Theme.secondary).lineLimit(2)
+                        }
+                        meta(all)
+                        HStack(spacing: 10) {
+                            Button { model.play(shown) } label: { Label("Play", systemImage: "play.fill") }
+                                .buttonStyle(PillButtonStyle())
+                            Button { model.play(shown, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                                .buttonStyle(PillButtonStyle(prominent: false))
+                        }
+                        .disabled(all.isEmpty)
+                        .padding(.top, 6)
+                    }
+                }
+
+                VStack(spacing: 2) {
+                    FilterField(prompt: "Find in \(kind.lowercased().split(separator: " ").first ?? "list")", text: $filter)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.bottom, 12)
+                    TrackListHeader(showArtwork: showArtwork, showAlbum: showArtwork)
+                    switch tracks {
+                    case .loading:
+                        LoadingRows(count: 8).padding(.top, 8)
+                    case .failed(let message):
+                        EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load tracks", message: message)
+                    case .loaded:
+                        if shown.isEmpty {
+                            EmptyNote(symbol: "magnifyingglass", title: all.isEmpty ? "No tracks" : "No matches for “\(filter)”")
+                        }
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
+                            TrackRow(track: track, number: i + 1, context: shown, showArtwork: showArtwork, showAlbum: showArtwork)
+                        }
+                    }
+                }
+            }
+            .task {
+                do { tracks = .loaded(try await load()) } catch { tracks = .failed(error.localizedDescription) }
+            }
+        }
+        .hotReloadable()
+    }
+
+    private func meta(_ tracks: [TrackItem]) -> some View {
+        HStack(spacing: 6) {
+            if let byline {
+                if let onByline {
+                    Button(byline, action: onByline).buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Theme.text)
+                } else {
+                    Text(byline).fontWeight(.semibold).foregroundStyle(Theme.text)
+                }
+            }
+            if !tracks.isEmpty {
+                Text("· \(tracks.count) songs · \(tracks.reduce(0) { $0 + $1.duration }.longForm)")
+            }
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(Theme.secondary)
+    }
+}
