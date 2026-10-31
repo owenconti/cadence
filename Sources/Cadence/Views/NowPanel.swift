@@ -22,7 +22,7 @@ struct NowPanel: View {
 
     private func playing(_ track: TrackItem, compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("NOW PLAYING").eyebrow()
+            PlayingFrom()
 
             if compact {
                 HStack(spacing: 14) {
@@ -63,6 +63,48 @@ struct NowPanel: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.tertiary)
                 .lineLimit(1)
+        }
+    }
+}
+
+/// "Playing from playlist" and its name, which opens it.
+private struct PlayingFrom: View {
+    @Environment(AppModel.self) private var model
+    @State private var hovering = false
+
+    var body: some View {
+        if let source = model.player.source {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("PLAYING FROM \(source.label.uppercased())").eyebrow()
+                Button { model.open(source) } label: {
+                    HStack(spacing: 4) {
+                        Text(source.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        if canOpen(source) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(Theme.tertiary)
+                        }
+                    }
+                    .foregroundStyle(hovering && canOpen(source) ? Theme.text : Theme.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canOpen(source))
+                .onHover { hovering = $0 }
+                .help(canOpen(source) ? "Go to \(source.title)" : "")
+            }
+        } else {
+            Text("NOW PLAYING").eyebrow()
+        }
+    }
+
+    private func canOpen(_ source: QueueSource) -> Bool {
+        switch source.kind {
+        case .album: source.route != nil
+        case .playlist: source.route != nil || model.playlists.contains { $0.id == source.id }
+        default: true
         }
     }
 }

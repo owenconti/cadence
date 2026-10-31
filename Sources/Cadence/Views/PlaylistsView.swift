@@ -73,6 +73,7 @@ struct PlaylistDetailView: View {
             byline: playlist.curator,
             summary: playlist.summary,
             artwork: playlist.artwork,
+            source: .playlist(playlist),
             showArtwork: true,
             load: { try await model.provider.tracks(in: playlist) }
         )
@@ -91,6 +92,7 @@ struct AlbumDetailView: View {
             onByline: { model.openArtist(id: album.artistID, name: album.artistName) },
             summary: nil,
             artwork: album.artwork,
+            source: .album(album),
             showArtwork: false,
             load: { try await model.provider.tracks(in: album) }
         )
@@ -106,6 +108,7 @@ struct CollectionDetailView: View {
     var onByline: (() -> Void)?
     let summary: String?
     let artwork: ArtworkSource
+    let source: QueueSource
     let showArtwork: Bool
     let load: () async throws -> [TrackItem]
 
@@ -137,9 +140,9 @@ struct CollectionDetailView: View {
                     }
                     meta(all)
                     HStack(spacing: 10) {
-                        Button { model.play(shown, shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
+                        Button { model.play(shown, shuffled: false, from: source) } label: { Label("Play", systemImage: "play.fill") }
                             .buttonStyle(PillButtonStyle())
-                        Button { model.play(shown, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                        Button { model.play(shown, shuffled: true, from: source) } label: { Label("Shuffle", systemImage: "shuffle") }
                             .buttonStyle(PillButtonStyle(prominent: false))
                     }
                     .disabled(all.isEmpty)
@@ -164,6 +167,7 @@ struct CollectionDetailView: View {
                     }
                     ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
                         TrackRow(track: track, number: i + 1, context: shown, showArtwork: showArtwork, showAlbum: showArtwork)
+                            .environment(\.queueSource, source)
                     }
                 }
             }

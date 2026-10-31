@@ -125,7 +125,7 @@ struct CommandPalette: View {
         let songs = results.songs
         entries.append(contentsOf: songs.prefix(5).map { track in
             .init(id: "song:\(track.id)", group: "Songs", title: track.title, subtitle: track.artistName, artwork: track.artwork, hint: "Play") {
-                model.play(songs, startAt: songs.firstIndex(of: track) ?? 0)
+                model.play(songs, startAt: songs.firstIndex(of: track) ?? 0, from: .search(query))
             }
         })
         entries.append(contentsOf: results.artists.prefix(4).map { artist in

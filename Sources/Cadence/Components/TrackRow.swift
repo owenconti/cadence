@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TrackRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.queueSource) private var source
     let track: TrackItem
     var number: Int?
     /// The list this row belongs to; playing a row queues the whole list.
@@ -100,7 +101,7 @@ struct TrackRow: View {
 
     private func play() {
         let index = context.firstIndex(of: track) ?? 0
-        model.play(context.isEmpty ? [track] : context, startAt: index)
+        model.play(context.isEmpty ? [track] : context, startAt: index, from: source)
     }
 }
 

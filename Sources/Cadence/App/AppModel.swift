@@ -260,7 +260,7 @@ final class AppModel {
         let byID = Dictionary(saved.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let unshuffled = saved.position.unshuffledIDs?.compactMap { byID[$0] }
         player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing,
-                      shuffled: saved.position.shuffled ?? false, unshuffled: unshuffled)
+                      shuffled: saved.position.shuffled ?? false, unshuffled: unshuffled, from: saved.position.source)
         // Library artwork is a handle that only works in the session that
         // fetched it, so restored songs need theirs fetched again. The playing
         // song and what's next come first.
@@ -310,16 +310,38 @@ final class AppModel {
 
     // MARK: Playback helpers
 
-    func play(_ tracks: [TrackItem], startAt index: Int = 0, shuffled: Bool? = nil) {
-        player.play(tracks, startAt: index, shuffled: shuffled)
+    func play(_ tracks: [TrackItem], startAt index: Int = 0, shuffled: Bool? = nil, from source: QueueSource? = nil) {
+        player.play(tracks, startAt: index, shuffled: shuffled, from: source)
     }
 
     func play(_ item: ShelfItem, shuffled: Bool? = false) async {
-        let tracks: [TrackItem]? = switch item {
-        case .album(let album): try? await provider.tracks(in: album)
-        case .playlist(let playlist): try? await provider.tracks(in: playlist)
+        switch item {
+        case .album(let album):
+            if let tracks = try? await provider.tracks(in: album) { play(tracks, shuffled: shuffled, from: .album(album)) }
+        case .playlist(let playlist):
+            if let tracks = try? await provider.tracks(in: playlist) { play(tracks, shuffled: shuffled, from: .playlist(playlist)) }
         }
-        if let tracks { play(tracks, shuffled: shuffled) }
+    }
+
+    /// Opens the page for where the music is playing from.
+    func open(_ source: QueueSource) {
+        switch source.kind {
+        case .playlist:
+            if let route = source.route {
+                navigate(route)
+            } else if let playlist = playlists.first(where: { $0.id == source.id }) {
+                navigate(.playlist(playlist))
+            }
+        case .artist:
+            if let route = source.route { navigate(route) } else { openArtist(id: source.id, name: source.title) }
+        case .album:
+            if let route = source.route { navigate(route) }
+        case .trending:
+            select(.discover)
+        case .search:
+            palette.present()
+            palette.query = source.title.trimmingCharacters(in: CharacterSet(charactersIn: "“”"))
+        }
     }
 
     // MARK: Keyboard

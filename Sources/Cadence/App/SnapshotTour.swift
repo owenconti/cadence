@@ -23,7 +23,7 @@ enum SnapshotTour {
 
             let playlists = try? await model.provider.playlists()
             if let first = playlists?.first, let tracks = try? await model.provider.tracks(in: first) {
-                model.play(tracks, startAt: 2)
+                model.play(tracks, startAt: 2, from: .playlist(first))
                 model.player.seek(to: 48)
             }
             await shot("2-discover-playing", wait: 2)

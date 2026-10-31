@@ -22,10 +22,11 @@ open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"
 sleep 4
 
 post play; sleep 3
-pid=$(state pid); track=$(state track); position=$(state position)
+pid=$(state pid); track=$(state track); position=$(state position); source=$(state source)
+[[ "$source" == Playlist:* ]] || fail "no 'playing from' source: $source"
 [[ "$(state playing)" == True ]] || fail "music didn't start"
 cp "$OUT/window.png" "$OUT/1-playing.png"
-echo "ok   playing '$track' at ${position%.*}s (pid $pid)"
+echo "ok   playing '$track' at ${position%.*}s (pid $pid), from $source"
 
 CONFIG=debug APP="$APP" scripts/bundle.sh >/dev/null
 sleep 4
@@ -40,6 +41,7 @@ post restart; sleep 7
 after=$(state position)
 python3 -c "import sys; sys.exit(0 if $after >= $position else 1)" || fail "position went back: $position → $after"
 [[ "$(state updateReady)" == False ]] || fail "new copy still says update ready"
+[[ "$(state source)" == "$source" ]] || fail "lost where it was playing from: $(state source)"
 cp "$OUT/window.png" "$OUT/3-restarted.png"
 echo "ok   restarted (pid $(state pid)); '$track' resumed at ${after%.*}s"
 
@@ -57,6 +59,7 @@ open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
 [[ "$(state track)" == "$track" ]] || fail "after quitting and reopening, got '$(state track)' instead of '$track'"
 [[ "$(state playing)" == False ]] || fail "reopened app started playing by itself"
 [[ "$(state shuffled)" == True ]] || fail "shuffle wasn't remembered"
+[[ "$(state source)" == "$source" ]] || fail "lost where it was playing from after reopening: $(state source)"
 cp "$OUT/window.png" "$OUT/5-reopened.png"
 echo "ok   quit and reopened; '$track' is back, paused at $(state position | cut -d. -f1)s, still shuffled"
 

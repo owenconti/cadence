@@ -64,12 +64,13 @@ struct DiscoverView: View {
         if !feed.trending.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "Trending now", subtitle: "What everyone's playing this week") {
-                    Button("Play all") { model.play(feed.trending, shuffled: false) }
+                    Button("Play all") { model.play(feed.trending, shuffled: false, from: .trending) }
                         .buttonStyle(PillButtonStyle(prominent: false))
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)], spacing: 4) {
                     ForEach(Array(feed.trending.enumerated()), id: \.element.id) { i, track in
                         TrackRow(track: track, number: i + 1, context: feed.trending, showAlbum: false)
+                            .environment(\.queueSource, .trending)
                     }
                 }
             }

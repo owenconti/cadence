@@ -15,6 +15,8 @@ final class Player {
     private(set) var index: Int?
     private(set) var isPlaying = false
     private(set) var position: TimeInterval = 0
+    /// Where the queue came from (a playlist, album, …).
+    private(set) var source: QueueSource?
     /// Shuffle mode: songs after the current one play in random order.
     private(set) var isShuffled = false
     /// The queue's own order, to return to when shuffle is turned off.
@@ -50,8 +52,9 @@ final class Player {
     /// Plays `tracks` from `start`. `shuffled` turns shuffle mode on or off;
     /// nil keeps the current mode (picking a song while shuffled plays it
     /// first, then the rest shuffled).
-    func play(_ tracks: [TrackItem], startAt start: Int = 0, shuffled: Bool? = nil) {
+    func play(_ tracks: [TrackItem], startAt start: Int = 0, shuffled: Bool? = nil, from source: QueueSource? = nil) {
         guard !tracks.isEmpty else { return }
+        self.source = source
         var list = tracks
         var startIndex = min(max(start, 0), tracks.count - 1)
         isShuffled = shuffled ?? isShuffled
@@ -76,8 +79,9 @@ final class Player {
 
     /// Picks up a queue carried over from before a restart.
     func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool,
-                shuffled: Bool = false, unshuffled: [TrackItem]? = nil) {
+                shuffled: Bool = false, unshuffled: [TrackItem]? = nil, from source: QueueSource? = nil) {
         guard tracks.indices.contains(start) else { return }
+        self.source = source
         isShuffled = shuffled
         self.unshuffled = shuffled ? unshuffled : nil
         queue = tracks
@@ -234,6 +238,7 @@ final class Player {
     func stop() {
         if backend == .musicKit { ApplicationMusicPlayer.shared.stop() }
         queue = []
+        source = nil
         index = nil
         isPlaying = false
         position = 0

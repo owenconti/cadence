@@ -205,3 +205,52 @@ extension TimeInterval {
         return hours > 0 ? "\(hours) hr \(minutes % 60) min" : "\(minutes) min"
     }
 }
+
+/// Where the queue came from, shown above Now Playing ("Playing from
+/// playlist · 2026") and saved with the queue.
+struct QueueSource: Codable, Hashable {
+    enum Kind: String, Codable {
+        case playlist, album, artist, trending, search
+    }
+
+    var kind: Kind
+    var title: String
+    var id: String?
+    /// The page to open for it; not saved, so a restored album has none.
+    var route: Route?
+
+    private enum CodingKeys: String, CodingKey { case kind, title, id }
+
+    var label: String {
+        switch kind {
+        case .playlist: "Playlist"
+        case .album: "Album"
+        case .artist: "Artist"
+        case .trending: "Discover"
+        case .search: "Search"
+        }
+    }
+
+    static func playlist(_ playlist: PlaylistItem) -> QueueSource {
+        QueueSource(kind: .playlist, title: playlist.name, id: playlist.id, route: .playlist(playlist))
+    }
+
+    static func album(_ album: AlbumItem) -> QueueSource {
+        QueueSource(kind: .album, title: album.title, id: album.id, route: .album(album))
+    }
+
+    static func artist(_ artist: ArtistItem) -> QueueSource {
+        QueueSource(kind: .artist, title: artist.name, id: artist.id, route: .artist(artist))
+    }
+
+    static let trending = QueueSource(kind: .trending, title: "Trending now", route: .discover)
+
+    static func search(_ query: String) -> QueueSource {
+        QueueSource(kind: .search, title: "“\(query)”")
+    }
+}
+
+extension EnvironmentValues {
+    /// The list a song row belongs to, so playing it records where from.
+    @Entry var queueSource: QueueSource?
+}

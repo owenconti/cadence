@@ -46,7 +46,7 @@ enum CheckHooks {
             Task {
                 guard let playlist = try? await model.provider.playlists().first,
                       let tracks = try? await model.provider.tracks(in: playlist) else { return }
-                model.play(tracks, startAt: 2)
+                model.play(tracks, startAt: 2, from: .playlist(playlist))
                 model.player.seek(to: 48)
             }
         }
@@ -83,6 +83,7 @@ enum CheckHooks {
             "playing": model.player.isPlaying,
             "queue": model.player.queue.count,
             "shuffled": model.player.isShuffled,
+            "source": model.player.source.map { "\($0.label): \($0.title)" } ?? NSNull(),
             "upNext": model.player.upNext.prefix(5).map(\.title).joined(separator: " / "),
             "updateReady": model.update.isReady,
             "stallMs": stallMs,

@@ -86,9 +86,9 @@ struct ArtistDetailView: View {
                     Text(genre).font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(0.75))
                 }
                 HStack(spacing: 10) {
-                    Button { model.play(songs, shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
+                    Button { model.play(songs, shuffled: false, from: .artist(artist)) } label: { Label("Play", systemImage: "play.fill") }
                         .buttonStyle(PillButtonStyle())
-                    Button { model.play(songs, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                    Button { model.play(songs, shuffled: true, from: .artist(artist)) } label: { Label("Shuffle", systemImage: "shuffle") }
                         .buttonStyle(PillButtonStyle(prominent: false))
                 }
                 .disabled(songs.isEmpty)
@@ -122,6 +122,7 @@ struct ArtistDetailView: View {
                 VStack(spacing: 2) {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { i, track in
                         TrackRow(track: track, number: i + 1, context: detail.topSongs)
+                            .environment(\.queueSource, .artist(detail.artist))
                     }
                 }
             }

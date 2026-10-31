@@ -22,6 +22,7 @@ final class PlaybackStore {
         var shuffled: Bool? = false
         /// IDs in the queue's own order while shuffled.
         var unshuffledIDs: [String]?
+        var source: QueueSource?
         var savedAt = Date()
     }
 
@@ -56,10 +57,11 @@ final class PlaybackStore {
         }
         let position = Position(live: player.backend == .musicKit, trackID: current.id, position: player.position,
                                 isPlaying: player.isPlaying, shuffled: player.isShuffled,
-                                unshuffledIDs: player.unshuffled?.map(\.id))
+                                unshuffledIDs: player.unshuffled?.map(\.id), source: player.source)
         let last = savedPosition
         guard force || last == nil || last!.trackID != position.trackID || last!.isPlaying != position.isPlaying
                 || last!.shuffled != position.shuffled || last!.unshuffledIDs != position.unshuffledIDs
+                || last!.source != position.source
                 || abs(last!.position - position.position) >= 3 else { return }
         if let data = try? JSONEncoder().encode(position), (try? data.write(to: positionFile, options: .atomic)) != nil {
             savedPosition = position
