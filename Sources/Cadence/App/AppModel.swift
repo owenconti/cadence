@@ -16,9 +16,11 @@ enum AccessState: Equatable {
 @MainActor
 @Observable
 final class AppModel {
-    enum Phase { case onboarding, ready }
+    enum Phase { case launching, onboarding, ready }
 
-    var phase: Phase = .onboarding
+    var phase: Phase = .launching
+    /// What the splash says while launching.
+    private(set) var launchStatus = "Starting…"
     private(set) var provider: any MusicProvider = DemoProvider()
     /// Bumped whenever the provider changes so views reload their data.
     private(set) var providerGeneration = 0
@@ -29,6 +31,8 @@ final class AppModel {
     var section: SidebarSection = .discover
     private(set) var stack: [Route] = []
     var playlists: [PlaylistItem] = []
+    /// Discover's feed, loaded behind the splash and kept until the library reloads.
+    var discoverFeed: DiscoverFeed?
     var access: AccessState = .idle
     /// Nil until known; only meaningful when connected to Apple Music.
     var canPlayCatalog: Bool?
@@ -36,8 +40,8 @@ final class AppModel {
     @ObservationIgnored private var keyMonitor: Any?
     /// Playback and place carried over from the copy that restarted into this one.
     @ObservationIgnored private var handoff: Handoff?
+    @ObservationIgnored private var preloading = false
     private static let sourceKey = "cadence.source"
-
 
     var route: Route { stack.last ?? section.route }
 
@@ -46,7 +50,11 @@ final class AppModel {
         #if DEBUG
         CheckHooks.install(self)
         #endif
-        guard RunMode.current != .snapshots else { return }
+        // The snapshot tour moves between screens itself.
+        guard RunMode.current != .snapshots else {
+            phase = .onboarding
+            return
+        }
         handoff = Handoff.take()
         if let frame = handoff?.windowFrame {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -58,50 +66,98 @@ final class AppModel {
             startDemo()
             return
         }
-        // Apple Music always uses the Apple ID signed into macOS, so once
-        // access has been granted there's nothing to ask: connect straight away.
-        if MusicAuthorization.currentStatus == .authorized {
-            Task { await connectAppleMusic() }
-        } else if UserDefaults.standard.string(forKey: Self.sourceKey) == "demo" {
-            startDemo()
+        Task { await launch() }
+    }
+
+    // MARK: Launch
+
+    /// Behind the splash: check access, connect and preload, then show the app,
+    /// or the connect screen when Apple Music isn't available yet.
+    private func launch() async {
+        let started = Date()
+        var ready = false
+        switch MusicAuthorization.currentStatus {
+        case .authorized:
+            // Apple Music always uses the Apple ID signed into macOS, so once
+            // access has been granted there's nothing to ask.
+            ready = await connectAppleMusic()
+        case .denied:
+            access = .denied
+        case .restricted:
+            access = .restricted
+        default:
+            if UserDefaults.standard.string(forKey: Self.sourceKey) == "demo" {
+                await load(DemoProvider(), backend: .demo)
+                ready = true
+            }
         }
+        await reveal(ready ? .ready : .onboarding, since: started)
+    }
+
+    /// Leaves the splash, after long enough that it reads as a splash rather
+    /// than a flicker.
+    private func reveal(_ next: Phase, since started: Date) async {
+        let shown = Date().timeIntervalSince(started)
+        if shown < 0.8 { try? await Task.sleep(for: .seconds(0.8 - shown)) }
+        withAnimation(.smooth(duration: 0.5)) { phase = next }
     }
 
     // MARK: Source
 
-    func startDemo() {
-        use(DemoProvider(), backend: .demo)
-        if !RunMode.isThrowaway { UserDefaults.standard.set("demo", forKey: Self.sourceKey) }
+    /// The connect screen's button: asks for access (macOS only prompts the
+    /// first time), then loads the library behind the splash.
+    func continueWithAppleMusic() {
+        Task {
+            let started = Date()
+            if await connectAppleMusic() { await reveal(.ready, since: started) }
+        }
     }
 
-    func connectAppleMusic() async {
+    func startDemo() {
+        Task {
+            let started = Date()
+            withAnimation(.smooth(duration: 0.3)) { phase = .launching }
+            launchStatus = "Loading the demo library…"
+            await load(DemoProvider(), backend: .demo, status: launchStatus)
+            if !RunMode.isThrowaway { UserDefaults.standard.set("demo", forKey: Self.sourceKey) }
+            await reveal(.ready, since: started)
+        }
+    }
+
+    /// Connects to Apple Music and loads the library. Returns whether the app
+    /// can be shown; otherwise `access` says why not.
+    private func connectAppleMusic() async -> Bool {
         access = .connecting
+        launchStatus = "Connecting to Apple Music…"
 
         switch await MusicAuthorization.request() {
         case .authorized: break
         case .denied:
             access = .denied
-            return
+            return false
         case .restricted:
             access = .restricted
-            return
+            return false
         default:
             access = .idle
-            return
+            return false
         }
 
         let provider = MusicKitProvider()
+        let playlists: [PlaylistItem]
         do {
-            _ = try await provider.playlists()
+            playlists = try await provider.playlists()
         } catch {
             access = .failed(error.localizedDescription)
-            return
+            return false
         }
 
         access = .idle
-        use(provider, backend: .musicKit)
+        withAnimation(.smooth(duration: 0.3)) { phase = .launching }
+        await load(provider, backend: .musicKit, playlists: playlists)
         UserDefaults.standard.set("musicKit", forKey: Self.sourceKey)
         Task { await watchSubscription() }
+        return true
     }
 
     func openPrivacySettings() {
@@ -118,24 +174,45 @@ final class AppModel {
         }
     }
 
-    private func use(_ provider: any MusicProvider, backend: Player.Backend) {
+    /// Switches to `provider` and loads what the first screen needs, so the app
+    /// opens filled in. Stops waiting after a few seconds on a slow connection;
+    /// whatever is still loading fills in once the app is showing.
+    private func load(_ provider: any MusicProvider, backend: Player.Backend, playlists: [PlaylistItem]? = nil,
+                      status: String = "Loading your library…") async {
+        launchStatus = status
         player.stop()
         canPlayCatalog = nil
         player.backend = backend
         self.provider = provider
         providerGeneration += 1
+        discoverFeed = nil
         stack = []
         section = .discover
-        withAnimation(.smooth(duration: 0.5)) { phase = .ready }
-        Task { await refreshPlaylists() }
         if let handoff {
             self.handoff = nil
             Task { await restore(handoff) }
+        }
+
+        preloading = true
+        Task {
+            async let feed = try? await provider.discover()
+            if let playlists {
+                self.playlists = playlists
+            } else {
+                self.playlists = (try? await provider.playlists()) ?? []
+            }
+            if self.discoverFeed == nil { self.discoverFeed = await feed }
+            self.preloading = false
+        }
+        let deadline = Date().addingTimeInterval(8)
+        while preloading, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
     /// Reloads every page from the library, keeping where you are.
     func reloadLibrary() {
+        discoverFeed = nil
         providerGeneration += 1
         Task { await refreshPlaylists() }
     }

@@ -8,13 +8,15 @@ struct RootView: View {
             AmbientBackground()
 
             switch model.phase {
+            case .launching:
+                SplashView().transition(.opacity)
             case .onboarding:
                 OnboardingView().transition(.opacity)
             case .ready:
                 MainShell().transition(.opacity)
             }
 
-            if model.palette.isPresented {
+            if model.palette.isPresented, model.phase != .launching {
                 CommandPalette()
                     .transition(.opacity)
                     .zIndex(2)

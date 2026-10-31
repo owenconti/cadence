@@ -22,6 +22,7 @@ The build signs with the first Apple Development or Developer ID identity in you
 
 | Area | What it does |
 | --- | --- |
+| Splash | Shown at launch while access is checked and the library loads, then fades into the app (Discover already filled in) or the connect screen |
 | Sidebar | Discover / Playlists / Artists, pinned playlists, ⌘K launcher |
 | Content | Discover (jump back in, recommendations, trending, new releases), playlist and album pages with in-list filtering, artist pages |
 | Now panel | Artwork, scrubber, transport, and the Up Next queue. The artwork compacts on short windows so the queue keeps its space |

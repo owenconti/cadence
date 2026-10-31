@@ -6,6 +6,12 @@ struct CadenceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
+    init() {
+        // Always open the main window. Saved window state can come back with no
+        // window at all, and Restart app carries the window's frame itself.
+        UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
+    }
+
     var body: some Scene {
         WindowGroup("Cadence") {
             RootView()

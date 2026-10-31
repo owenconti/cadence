@@ -19,7 +19,7 @@ enum SnapshotTour {
             model.phase = .onboarding
             await shot("0-onboarding")
             model.startDemo()
-            await shot("1-discover-empty")
+            await shot("1-discover-empty", wait: 2.2)
 
             let playlists = try? await model.provider.playlists()
             if let first = playlists?.first, let tracks = try? await model.provider.tracks(in: first) {

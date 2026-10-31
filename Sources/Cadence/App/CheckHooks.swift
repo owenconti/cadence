@@ -41,13 +41,14 @@ enum CheckHooks {
         let state: [String: Any] = [
             "pid": ProcessInfo.processInfo.processIdentifier,
             "bundle": Bundle.main.bundlePath,
-            "phase": model.phase == .ready ? "ready" : "onboarding",
+            "phase": "\(model.phase)",
             "section": model.section.rawValue,
             "track": model.player.current?.title ?? NSNull(),
             "position": model.player.position,
             "playing": model.player.isPlaying,
             "queue": model.player.queue.count,
             "updateReady": model.update.isReady,
+            "windows": NSApp.windows.map { "\(type(of: $0)) visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height))" },
         ]
         if let data = try? JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: dir.appendingPathComponent("state.json"))

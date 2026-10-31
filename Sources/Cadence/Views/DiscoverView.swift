@@ -2,7 +2,7 @@ import SwiftUI
 
 struct DiscoverView: View {
     @Environment(AppModel.self) private var model
-    @State private var feed: Loadable<DiscoverFeed> = .loading
+    @State private var loadError: String?
 
     var body: some View {
         PageScroll {
@@ -13,17 +13,18 @@ struct DiscoverView: View {
                     .foregroundStyle(Theme.secondary)
             }
 
-            switch feed {
-            case .loading:
-                LoadingRows()
-            case .failed(let message):
-                EmptyNote(symbol: "wifi.exclamationmark", title: "Couldn't load Discover", message: message)
-            case .loaded(let feed):
+            // Usually loaded behind the splash; otherwise it loads here.
+            if let feed = model.discoverFeed {
                 sections(feed)
+            } else if let loadError {
+                EmptyNote(symbol: "wifi.exclamationmark", title: "Couldn't load Discover", message: loadError)
+            } else {
+                LoadingRows()
             }
         }
         .task {
-            do { feed = .loaded(try await model.provider.discover()) } catch { feed = .failed(error.localizedDescription) }
+            guard model.discoverFeed == nil else { return }
+            do { model.discoverFeed = try await model.provider.discover() } catch { loadError = error.localizedDescription }
         }
     }
 

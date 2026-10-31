@@ -24,7 +24,7 @@ struct OnboardingView: View {
 
             VStack(spacing: 12) {
                 Button {
-                    Task { await model.connectAppleMusic() }
+                    model.continueWithAppleMusic()
                 } label: {
                     HStack(spacing: 8) {
                         if model.access == .connecting { ProgressView().controlSize(.small) }
@@ -101,7 +101,7 @@ private struct AccessNotice: View {
                 symbol: "exclamationmark.triangle.fill",
                 title: "Couldn't reach Apple Music",
                 message: reason,
-                action: ("Try Again", { Task { await model.connectAppleMusic() } })
+                action: ("Try Again", model.continueWithAppleMusic)
             )
         }
     }
