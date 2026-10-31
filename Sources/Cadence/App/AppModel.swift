@@ -97,7 +97,7 @@ final class AppModel {
     private func reveal(_ next: Phase, since started: Date) async {
         let shown = Date().timeIntervalSince(started)
         if shown < 0.8 { try? await Task.sleep(for: .seconds(0.8 - shown)) }
-        withAnimation(.smooth(duration: 0.5)) { phase = next }
+        phase = next
     }
 
     // MARK: Source
@@ -114,7 +114,7 @@ final class AppModel {
     func startDemo() {
         Task {
             let started = Date()
-            withAnimation(.smooth(duration: 0.3)) { phase = .launching }
+            phase = .launching
             launchStatus = "Loading the demo library…"
             await load(DemoProvider(), backend: .demo, status: launchStatus)
             UserDefaults.standard.set("demo", forKey: Self.sourceKey)
@@ -151,7 +151,7 @@ final class AppModel {
         }
 
         access = .idle
-        withAnimation(.smooth(duration: 0.3)) { phase = .launching }
+        phase = .launching
         await load(provider, backend: .musicKit, playlists: playlists)
         UserDefaults.standard.set("musicKit", forKey: Self.sourceKey)
         Task { await watchSubscription() }

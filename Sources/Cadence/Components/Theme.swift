@@ -56,8 +56,7 @@ struct PillButtonStyle: ButtonStyle {
             .foregroundStyle(prominent ? Color.black : Theme.text)
             .background(Capsule().fill(prominent ? AnyShapeStyle(Color.white) : AnyShapeStyle(Theme.card)))
             .overlay(Capsule().stroke(prominent ? .clear : Theme.hairline))
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.8 : 1)
             .contentShape(Capsule())
     }
 }
@@ -73,8 +72,7 @@ struct IconButtonStyle: ButtonStyle {
             .foregroundStyle(active ? Theme.accent : (hovering ? Theme.text : Theme.secondary))
             .frame(width: size, height: size)
             .background(Circle().fill(hovering ? Theme.card : .clear))
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
-            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.7 : 1)
             .contentShape(Circle())
             .onHover { hovering = $0 }
     }
@@ -83,8 +81,7 @@ struct IconButtonStyle: ButtonStyle {
 struct PressableStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }
 

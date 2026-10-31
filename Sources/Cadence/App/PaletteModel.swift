@@ -32,11 +32,11 @@ final class PaletteModel {
     func present() {
         query = ""
         selection = 0
-        withAnimation(.snappy(duration: 0.18)) { isPresented = true }
+        isPresented = true
     }
 
     func dismiss() {
-        withAnimation(.snappy(duration: 0.15)) { isPresented = false }
+        isPresented = false
     }
 
     func move(_ delta: Int) {

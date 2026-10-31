@@ -9,20 +9,24 @@ struct RootView: View {
 
             switch model.phase {
             case .launching:
-                SplashView().transition(.opacity)
+                SplashView()
             case .onboarding:
-                OnboardingView().transition(.opacity)
+                OnboardingView()
             case .ready:
-                MainShell().transition(.opacity)
+                MainShell()
             }
 
             if model.palette.isPresented, model.phase != .launching {
                 CommandPalette()
-                    .transition(.opacity)
                     .zIndex(2)
             }
         }
         .ignoresSafeArea()
+        // No animations anywhere: every change shows instantly (see AGENTS.md).
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
         .preferredColorScheme(.dark)
         .frame(minWidth: 1080, minHeight: 680)
     }
@@ -48,9 +52,7 @@ struct ContentArea: View {
         ZStack {
             page(for: route)
                 .id(route)
-                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
         }
-        .animation(.snappy(duration: 0.28), value: route)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .id(model.providerGeneration)
     }

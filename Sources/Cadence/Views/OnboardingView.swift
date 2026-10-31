@@ -2,7 +2,6 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model
-    @State private var appeared = false
 
     var body: some View {
         VStack(spacing: 36) {
@@ -40,7 +39,6 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.tertiary)
 
                 AccessNotice()
-                    .animation(.smooth(duration: 0.3), value: model.access)
 
                 Button("or explore with the demo library", action: model.startDemo)
                     .buttonStyle(.plain)
@@ -50,9 +48,6 @@ struct OnboardingView: View {
             }
         }
         .padding(60)
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared ? 0 : 16)
-        .onAppear { withAnimation(.smooth(duration: 0.8)) { appeared = true } }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -131,7 +126,6 @@ private struct AccessNotice: View {
         .frame(width: 420)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.hairline))
-        .transition(.opacity.combined(with: .offset(y: -6)))
     }
 }
 

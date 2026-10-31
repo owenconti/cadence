@@ -112,7 +112,7 @@ struct ArtistDetailView: View {
                 SectionHeader(title: "Popular") {
                     if detail.topSongs.count > 5 {
                         Button(showAllSongs ? "Show less" : "Show all \(detail.topSongs.count)") {
-                            withAnimation(.snappy) { showAllSongs.toggle() }
+                            showAllSongs.toggle()
                         }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))

@@ -200,7 +200,7 @@ struct CommandPalette: View {
         })
         if !model.provider.isLive {
             list.append(.init(id: "lib:connect", group: "Library", title: "Connect Apple Music", symbol: "applelogo", keywords: "sign in account library") {
-                withAnimation(.smooth(duration: 0.4)) { model.phase = .onboarding }
+                model.phase = .onboarding
             })
         }
         if !model.update.isReady { list.append(restart) }

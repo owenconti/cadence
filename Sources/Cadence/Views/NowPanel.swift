@@ -46,7 +46,6 @@ struct NowPanel: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, Theme.titlebarInset)
-        .animation(.smooth(duration: 0.35), value: track.id)
     }
 
     private func titles(_ track: TrackItem) -> some View {
@@ -54,7 +53,6 @@ struct NowPanel: View {
             Text(track.title)
                 .font(.display(19, .bold))
                 .lineLimit(2)
-                .contentTransition(.opacity)
             Button(track.artistName) { model.openArtist(id: track.artistID, name: track.artistName) }
                 .buttonStyle(.plain)
                 .font(.system(size: 13, weight: .medium))
