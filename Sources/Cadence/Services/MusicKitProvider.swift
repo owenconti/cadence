@@ -134,6 +134,12 @@ final class MusicKitProvider: MusicProvider {
         }
     }
 
+    nonisolated static func librarySong(id: String) async -> Song? {
+        var library = MusicLibraryRequest<Song>()
+        library.filter(matching: \.id, equalTo: MusicItemID(id))
+        return try? await library.response().items.first
+    }
+
     private nonisolated static func song(withID id: String) async -> Song? {
         var library = MusicLibraryRequest<Song>()
         library.filter(matching: \.id, equalTo: MusicItemID(id))

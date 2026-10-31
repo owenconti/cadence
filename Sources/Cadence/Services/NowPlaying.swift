@@ -101,14 +101,16 @@ final class NowPlaying {
         }
     }
 
-    private static func image(for source: ArtworkSource) async -> NSImage? {
+    static func image(for source: ArtworkSource) async -> NSImage? {
         switch source {
         case .musicKit(let artwork, _):
-            // Library artwork uses musickit:// URLs that only MusicKit's views can
-            // load; catalog artwork is a plain web URL.
-            guard let url = artwork.url(width: 600, height: 600), url.scheme?.hasPrefix("http") == true,
-                  let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
-            return NSImage(data: data)
+            // Catalog artwork is a plain web URL; library artwork uses
+            // musicKit:// URLs that only MusicKit's views can load.
+            if let url = artwork.url(width: 600, height: 600), url.scheme?.hasPrefix("http") == true,
+               let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) {
+                return image
+            }
+            return await ArtworkSnapshot.image(artwork)
         case .generated(let seed, let style, let palette):
             let renderer = ImageRenderer(content: GeneratedArt(seed: seed, style: style, palette: palette).frame(width: 600, height: 600))
             return renderer.nsImage

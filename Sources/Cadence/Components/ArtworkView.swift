@@ -23,18 +23,26 @@ struct ArtworkView: View {
         case .generated(let seed, let style, let palette):
             GeneratedArt(seed: seed, style: style, palette: palette)
         case .musicKit(let artwork, let palette):
-            // Library artwork uses musickit:// URLs that only ArtworkImage can load.
-            GeometryReader { geo in
-                ArtworkImage(artwork, width: geo.size.width, height: geo.size.height)
-            }
-            .background(palette.primary.opacity(0.6))
-        case .none:
+            // Library artwork uses musickit:// URLs that only ArtworkImage can
+            // load. It draws over the placeholder, so artwork that never
+            // arrives leaves the placeholder rather than an empty box.
             ZStack {
-                LinearGradient(colors: [Palette.neutral.primary, Palette.neutral.secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: circular ? "person.fill" : "music.note")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.35))
+                placeholder(palette)
+                GeometryReader { geo in
+                    ArtworkImage(artwork, width: geo.size.width, height: geo.size.height)
+                }
             }
+        case .none:
+            placeholder(.neutral)
+        }
+    }
+
+    private func placeholder(_ palette: Palette) -> some View {
+        ZStack {
+            LinearGradient(colors: [palette.primary, palette.secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+            Image(systemName: circular ? "person.fill" : "music.note")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(.white.opacity(0.35))
         }
     }
 }

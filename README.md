@@ -38,6 +38,8 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 - `Services/Player.swift`: queue, plus `ApplicationMusicPlayer` (live) or a simulated clock (demo)
 - `App/AppUpdate.swift`: notices a newer build on disk, and Restart app with its playback handoff
 - `App/RunMode.swift`, `App/CheckHooks.swift`: throwaway copies for `make check` and `make snapshots`
+- `App/ArtworkAudit.swift`: `make artwork`, which draws every artwork source from the real library and fails on any blank
+- `Components/ArtworkSnapshot.swift`: draws library artwork into an image (Control Center, the audit)
 - `Views/`, `Components/`: SwiftUI
 
 `make snapshots` captures every screen from a throwaway debug copy into `build/check/snapshots/`.

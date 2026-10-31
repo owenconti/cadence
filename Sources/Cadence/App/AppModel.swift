@@ -53,6 +53,7 @@ final class AppModel {
     var route: Route { stack.last ?? section.route }
 
     init() {
+        if ArtworkAudit.runIfRequested() { return }
         installKeyMonitor()
         CheckHooks.install(self)
         // The snapshot tour moves between screens itself.
@@ -70,7 +71,7 @@ final class AppModel {
         }
         if let frame = handoff?.windowFrame {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                NSApp.windows.first { $0.isVisible }?.setFrame(frame, display: true)
+                NSApp.appWindow?.setFrame(frame, display: true)
             }
         }
         // Check copies stay on the demo library, away from the user's music.
@@ -237,7 +238,7 @@ final class AppModel {
         savePlayback(force: true)
         update.relaunch(saving: Handoff(
             section: section.rawValue,
-            windowFrame: NSApp.windows.first { $0.isVisible }?.frame,
+            windowFrame: NSApp.appWindow?.frame,
             keepPlaying: player.isPlaying
         ))
     }

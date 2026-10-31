@@ -74,4 +74,7 @@ post shuffle; sleep 1
 echo "ok   shuffle off; the original order is back"
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
+
+# Artwork from the real library: every source must draw.
+scripts/artwork.sh | sed 's/^/     artwork: /' || fail "artwork didn't draw; see build/audit/out/report.txt"
 echo "PASS"

@@ -52,7 +52,7 @@ enum SnapshotTour {
     }
 
     private static func capture(to url: URL) {
-        guard let view = NSApp.windows.first(where: { $0.isVisible })?.contentView,
+        guard let view = NSApp.appWindow?.contentView,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
