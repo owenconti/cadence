@@ -47,9 +47,7 @@ final class AppModel {
 
     init() {
         installKeyMonitor()
-        #if DEBUG
         CheckHooks.install(self)
-        #endif
         // The snapshot tour moves between screens itself.
         guard RunMode.current != .snapshots else {
             phase = .onboarding

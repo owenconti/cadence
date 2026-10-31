@@ -1,7 +1,7 @@
 # Cadence tasks. `make` with no target lists them.
 
 .DEFAULT_GOAL := help
-.PHONY: help update check snapshots run icon clean
+.PHONY: help update check perf snapshots run icon clean
 
 help: ## List tasks
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
@@ -11,6 +11,9 @@ update: ## Rebuild and install /Applications/Cadence.app; a running copy offers 
 
 check: ## Automated update + restart check on a throwaway copy
 	@scripts/check.sh
+
+perf: ## Measure animation lag opening a long playlist on a throwaway copy
+	@scripts/perf.sh
 
 snapshots: ## Screenshot every screen from a throwaway copy into build/check/snapshots
 	@CONFIG=debug APP=build/check/Cadence.app BUNDLE_ID=com.owenconti.cadence.check scripts/bundle.sh >/dev/null

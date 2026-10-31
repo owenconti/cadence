@@ -45,19 +45,23 @@ struct TrackRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Menu {
-                TrackMenu(track: track)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.secondary)
-                    .frame(width: 24, height: 24)
+            // A Menu is a full AppKit control, so only the hovered row has one.
+            Group {
+                if hovering {
+                    Menu {
+                        TrackMenu(track: track)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.secondary)
+                            .frame(width: 24, height: 24)
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                }
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
             .frame(width: 24)
-            .opacity(hovering ? 1 : 0)
 
             Text(track.duration.clock)
                 .font(.system(size: 12).monospacedDigit())

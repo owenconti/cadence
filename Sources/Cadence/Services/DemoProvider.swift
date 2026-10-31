@@ -167,13 +167,14 @@ private struct DemoLibrary {
             ("Rainy Window", "Soft songs for grey afternoons.", ["Dream Pop", "Ambient", "Folk"]),
             ("Golden Hour", "Warm grooves for the last light of the day.", ["Neo-Soul", "Alt R&B", "Dream Pop"]),
             ("Fresh Finds", "New this year from the artists you follow.", []),
+            ("All Songs", "Every song in the library.", ["*"]),
         ]
         for (i, mix) in mixes.enumerated() {
             let id = "playlist-\(i)"
-            let pool = mix.2.isEmpty
+            let pool = mix.2 == ["*"] ? tracks : mix.2.isEmpty
                 ? tracks.filter { t in albums.first { $0.id == t.albumID }?.year.map { $0 >= "2024" } ?? false }
                 : tracks.filter { mix.2.contains(genres[$0.artistID ?? ""] ?? "") }
-            let picked = Array(pool.shuffled(seed: UInt64(i + 100)).prefix(18))
+            let picked = mix.2 == ["*"] ? pool : Array(pool.shuffled(seed: UInt64(i + 100)).prefix(18))
             playlistTracks[id] = picked
             playlists.append(PlaylistItem(
                 id: id, name: mix.0, curator: "Cadence", summary: mix.1,

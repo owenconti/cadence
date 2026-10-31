@@ -147,7 +147,8 @@ struct CollectionDetailView: View {
                 }
             }
 
-            VStack(spacing: 2) {
+            // Lazy: long playlists only build the rows on screen.
+            LazyVStack(spacing: 2) {
                 FilterField(prompt: "Find in \(kind.lowercased().split(separator: " ").first ?? "list")", text: $filter)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.bottom, 12)
