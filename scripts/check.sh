@@ -6,6 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP=build/check/Cadence.app
+# Its own bundle ID, so its settings, saved state and permissions stay apart
+# from the user's app.
+export BUNDLE_ID=com.owenconti.cadence.check
 OUT="$PWD/build/check/out"
 post() { notifyutil -p "com.owenconti.cadence.check.$1"; }
 state() { post snapshot; sleep 1; python3 -c "import json,sys; print(json.load(open('$OUT/state.json'))['$1'])"; }

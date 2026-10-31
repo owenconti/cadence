@@ -119,7 +119,7 @@ final class AppModel {
             withAnimation(.smooth(duration: 0.3)) { phase = .launching }
             launchStatus = "Loading the demo library…"
             await load(DemoProvider(), backend: .demo, status: launchStatus)
-            if !RunMode.isThrowaway { UserDefaults.standard.set("demo", forKey: Self.sourceKey) }
+            UserDefaults.standard.set("demo", forKey: Self.sourceKey)
             await reveal(.ready, since: started)
         }
     }

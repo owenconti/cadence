@@ -13,7 +13,7 @@ check: ## Automated update + restart check on a throwaway copy
 	@scripts/check.sh
 
 snapshots: ## Screenshot every screen from a throwaway copy into build/check/snapshots
-	@CONFIG=debug APP=build/check/Cadence.app scripts/bundle.sh >/dev/null
+	@CONFIG=debug APP=build/check/Cadence.app BUNDLE_ID=com.owenconti.cadence.check scripts/bundle.sh >/dev/null
 	@rm -rf build/check/snapshots
 	@open -g -n -W --env CADENCE_SNAPSHOTS=$(CURDIR)/build/check/snapshots build/check/Cadence.app
 	@ls build/check/snapshots

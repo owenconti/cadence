@@ -13,7 +13,7 @@ When a change is done:
 3. **Rebuild the user's app.** Run `make update`. It rebuilds and installs `/Applications/Cadence.app` in place, under the running copy. Within about 3 seconds that copy shows "Update ready" in the sidebar, and **Restart app** (⌘K or ⌥⌘R) loads the new build. Before quitting, it saves the queue, current song, position and section; the new copy resumes them after a pause of a second or two.
 4. **Tell the user** what changed and that Restart app (⌘K) is ready.
 
-Never quit, relaunch or open the user's app (`/Applications/Cadence.app`), and don't run `make run`; restarting is the user's choice. Check runs use only the throwaway copy under `build/check/`. It listens for `notifyutil -p com.owenconti.cadence.check.<snapshot|play|restart>`, writes `state.json` and `window.png` to its check folder, and keeps its handoff and saved settings apart from the user's.
+Never quit, relaunch or open the user's app (`/Applications/Cadence.app`), and don't run `make run`; restarting is the user's choice. Check runs use only the throwaway copy under `build/check/`. It has its own bundle ID (`com.owenconti.cadence.check`), so its settings, saved window state and permissions never touch the user's app. It listens for `notifyutil -p com.owenconti.cadence.check.<snapshot|play|restart>`, and writes `state.json` and `window.png` to its check folder.
 
 ## Command palette
 

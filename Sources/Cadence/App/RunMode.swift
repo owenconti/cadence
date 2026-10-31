@@ -1,8 +1,8 @@
 import Foundation
 
 /// How this copy was launched. The user's own app is `.normal`; the others are
-/// throwaway copies for automated checks that must leave the user's saved
-/// state and library alone.
+/// throwaway copies for automated checks, built with their own bundle ID
+/// (`com.owenconti.cadence.check`) so nothing they save reaches the user's app.
 enum RunMode {
     case normal
     /// `CADENCE_SNAPSHOTS`: the debug snapshot tour.
@@ -16,8 +16,6 @@ enum RunMode {
         if env["CADENCE_CHECK_DIR"] != nil { return .check }
         return .normal
     }()
-
-    static var isThrowaway: Bool { current != .normal }
 
     /// Carried into a restarted copy so it runs the same way.
     static var environment: [String: String] {

@@ -63,8 +63,7 @@ struct Handoff: Codable {
     var windowFrame: CGRect?
     var savedAt = Date()
 
-    /// Check copies keep theirs apart from the user's app.
-    private static let key = RunMode.current == .check ? "cadence.handoff.check" : "cadence.handoff"
+    private static let key = "cadence.handoff"
 
     func save() {
         UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.key)
