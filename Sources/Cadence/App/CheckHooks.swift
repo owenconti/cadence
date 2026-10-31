@@ -21,6 +21,12 @@ import notify
 ///   key handling all see it. Numbered, so a late or repeated notification
 ///   never presses twice; `pressed` in state.json says which number ran.
 /// - `select-artists`: goes to Artists.
+/// - `run`: runs the steps in `run.txt` in order, once per number on its
+///   first line, then reports that number as `ran`. Steps: `sim prepare=2
+///   play=0 insert=2 refuse=1` (the simulated engine's delays in seconds, and
+///   whether it refuses songs), `play-playlist N`, `add-to-queue N I` (song I
+///   of playlist N; -1 for the last), `toggle`, `wait S`, `play-duplicates N
+///   [shuffled]` (A, B, A, C from entry N, shuffle mode on or off).
 /// - `play-duplicates`: plays A, B, A, C from the second A; `play-duplicates-first`
 ///   from the first.
 /// - `type-glass`: types "glass" into the window, as the keyboard would.
@@ -32,6 +38,8 @@ enum CheckHooks {
     private static var tokens: [Int32] = []
     private static var stallMs: Double = 0
     private static var lastPress = ""
+    private static var lastRun = ""
+    private static var running = false
     private static var activity: NSObjectProtocol?
     private static let keys: [String: (String, UInt16, NSEvent.ModifierFlags)] = [
         "cmd-b": ("b", 11, .command), "shift-cmd-f": ("f", 3, [.command, .shift]),
@@ -90,6 +98,17 @@ enum CheckHooks {
             press(chars, keyCode: code, modifiers: modifiers)
         }
         listen("select-artists") { model.select(.artists) }
+        listen("run") {
+            let lines = ((try? String(contentsOf: dir.appendingPathComponent("run.txt"), encoding: .utf8)) ?? "")
+                .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard let number = lines.first, number != lastRun, !running else { return }
+            running = true
+            Task {
+                for step in lines.dropFirst() { await run(step, model) }
+                lastRun = number
+                running = false
+            }
+        }
         for (name, start) in [("play-duplicates", 2), ("play-duplicates-first", 0)] {
             listen(name) {
                 Task {
@@ -177,11 +196,19 @@ enum CheckHooks {
             "paletteOpen": model.palette.isPresented,
             "paletteQuery": model.palette.query,
             "pressed": lastPress,
+            "ran": lastRun,
+            "playingNow": model.player.isPlaying,
+            "notice": model.player.notice ?? "",
+            "engineQueueIDs": (model.player.engine as? SimulatedEngine)?.entries.map(\.id).joined(separator: ",") ?? "",
+            "engineIndex": (model.player.engine as? SimulatedEngine)?.index ?? -1,
+            "enginePlaying": model.player.engine.isPlaying,
+            "engineTime": model.player.engine.playbackTime,
             "snapshot": (try? String(contentsOf: dir.appendingPathComponent("snapshot.txt"), encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "queueIDs": model.player.queue.map(\.id).joined(separator: ","),
             "index": model.player.index ?? -1,
             "upNextAll": model.player.upNext.map(\.id).joined(separator: ","),
+            "unshuffledIDs": model.player.unshuffled?.map(\.id).joined(separator: ",") ?? "",
             "filterText": editableFields(in: NSApp.appWindow?.contentView).filter { !($0 is FocusingTextField) }.map(\.stringValue).joined(),
             "sidebarHidden": model.sidebarHidden,
             "nowPlayingMode": model.nowPlayingMode,
@@ -214,6 +241,52 @@ enum CheckHooks {
                                             charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode) {
                 NSApp.sendEvent(event)
             }
+        }
+    }
+
+    /// One step of a `run` script.
+    private static func run(_ step: String, _ model: AppModel) async {
+        let words = step.split(separator: " ").map(String.init)
+        func playlist(_ word: String) -> PlaylistItem? {
+            let n = Int(word) ?? 0
+            return n < 0 ? model.playlists.last : model.playlists.indices.contains(n) ? model.playlists[n] : nil
+        }
+        switch words.first {
+        case "sim":
+            guard let engine = model.player.engine as? SimulatedEngine else { return }
+            for setting in words.dropFirst() {
+                let pair = setting.split(separator: "=").map(String.init)
+                guard pair.count == 2, let value = Double(pair[1]) else { continue }
+                switch pair[0] {
+                case "prepare": engine.delays.prepare = .milliseconds(Int(value * 1000))
+                case "play": engine.delays.play = .milliseconds(Int(value * 1000))
+                case "insert": engine.delays.insert = .milliseconds(Int(value * 1000))
+                case "refuse": engine.refuseInserts = value != 0
+                default: break
+                }
+            }
+        case "play-playlist":
+            guard words.count > 1, let playlist = playlist(words[1]),
+                  let tracks = try? await model.provider.tracks(in: playlist) else { return }
+            model.play(tracks, shuffled: false, from: .playlist(playlist))
+        case "add-to-queue":
+            guard words.count > 2, let playlist = playlist(words[1]),
+                  let tracks = try? await model.provider.tracks(in: playlist), !tracks.isEmpty else { return }
+            let i = Int(words[2]) ?? 0
+            model.player.addToQueue(tracks[i < 0 ? tracks.count - 1 : min(i, tracks.count - 1)])
+        case "toggle":
+            model.player.toggle()
+        case "play-duplicates":
+            guard let playlist = model.playlists.first,
+                  let tracks = try? await model.provider.tracks(in: playlist), tracks.count >= 3 else { return }
+            let shuffled = words.contains("shuffled")
+            model.player.setShuffle(shuffled)
+            model.play([tracks[0], tracks[1], tracks[0], tracks[2]], startAt: Int(words.count > 1 ? words[1] : "0") ?? 0,
+                       from: .playlist(playlist))
+        case "wait":
+            try? await Task.sleep(for: .milliseconds(Int((Double(words.count > 1 ? words[1] : "0") ?? 0) * 1000)))
+        default:
+            break
         }
     }
 }

@@ -108,7 +108,8 @@ struct CommandPalette: View {
     private var stateKey: String {
         let player = model.player
         return [player.current?.id ?? "", "\(player.isPlaying)", "\(player.isShuffled)", "\(model.sidebarHidden)",
-                "\(model.nowPlayingMode)", "\(model.stack.count)", "\(model.update.isReady)",
+                "\(model.nowPlayingMode)", "\(model.stack.count)", "\(model.update.isReady)", "\(model.route)",
+                "\(model.playlistSort)", "\(model.showAllPopular)", "\(model.popularSongCount)",
                 "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.phase)", "\(model.access)",
                 // Names too: a renamed or replaced playlist, same count.
                 model.playlists.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
@@ -193,6 +194,37 @@ struct CommandPalette: View {
         }
     }
 
+    /// What the open page's own buttons do.
+    private var pageCommands: [PaletteModel.Entry] {
+        func playing(_ item: ShelfItem, _ name: String) -> [PaletteModel.Entry] {
+            [
+                .init(id: "page:play", group: "This page", title: "Play “\(name)”", symbol: "play.fill", keywords: "start listen") {
+                    Task { await model.play(item, shuffled: false) }
+                },
+                .init(id: "page:shuffle", group: "This page", title: "Shuffle “\(name)”", symbol: "shuffle", keywords: "random") {
+                    Task { await model.play(item, shuffled: true) }
+                },
+            ]
+        }
+        switch model.route {
+        case .playlist(let playlist):
+            return playing(.playlist(playlist), playlist.name)
+        case .album(let album):
+            return playing(.album(album), album.title)
+        case .playlists:
+            return PlaylistSort.allCases.filter { $0 != model.playlistSort }.map { sort in
+                .init(id: "page:sort:\(sort.rawValue)", group: "This page", title: "Sort playlists: \(sort.rawValue)",
+                      symbol: "arrow.up.arrow.down", keywords: "order recent name alphabetical largest size") { model.playlistSort = sort }
+            }
+        case .artist where model.popularSongCount > 5:
+            return [.init(id: "page:popular", group: "This page",
+                          title: model.showAllPopular ? "Show fewer popular songs" : "Show all \(model.popularSongCount) popular songs",
+                          symbol: "list.bullet", keywords: "top songs more expand") { model.showAllPopular.toggle() }]
+        default:
+            return []
+        }
+    }
+
     /// Everything the app can do, each shown only when it would work. Keep this
     /// in step with buttons, menu items and shortcuts (see CLAUDE.md).
     private var commands: [PaletteModel.Entry] {
@@ -227,6 +259,8 @@ struct CommandPalette: View {
             ready.group = "Update ready"
             list.append(ready)
         }
+
+        list += pageCommands
 
         list += SidebarSection.allCases.enumerated().map { i, section in
             .init(id: "go:\(section.rawValue)", group: "Go to", title: section.title, symbol: section.symbol, hint: "⌘\(i + 1)") {

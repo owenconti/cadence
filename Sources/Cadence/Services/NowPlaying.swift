@@ -16,39 +16,43 @@ final class NowPlaying {
         self.player = player
         artwork.loaded = { [weak self] in self?.publish() }
         let commands = MPRemoteCommandCenter.shared()
-        handle(commands.playCommand) { $0.setPlaying(true) }
-        handle(commands.pauseCommand) { $0.setPlaying(false) }
-        handle(commands.togglePlayPauseCommand) { $0.toggle() }
-        handle(commands.nextTrackCommand) { $0.next() }
-        handle(commands.previousTrackCommand) { $0.previous() }
-        commands.changeShuffleModeCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
-            return MainActor.assumeIsolated {
-                guard let self, self.player.current != nil else { return .noActionableNowPlayingItem }
-                self.player.setShuffle(event.shuffleType != .off)
-                self.publish()
-                return .success
-            }
+        handle(commands.playCommand) { player, _ in player.setPlaying(true) }
+        handle(commands.pauseCommand) { player, _ in player.setPlaying(false) }
+        handle(commands.togglePlayPauseCommand) { player, _ in player.toggle() }
+        handle(commands.nextTrackCommand) { player, _ in player.next() }
+        handle(commands.previousTrackCommand) { player, _ in player.previous() }
+        handle(commands.changeShuffleModeCommand) { player, event in
+            guard let event = event as? MPChangeShuffleModeCommandEvent else { return }
+            player.setShuffle(event.shuffleType != .off)
         }
-        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            return MainActor.assumeIsolated {
-                guard let self, self.player.current != nil else { return .noActionableNowPlayingItem }
-                self.player.seek(to: event.positionTime)
-                self.publish()
-                return .success
-            }
+        handle(commands.changePlaybackPositionCommand) { player, event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return }
+            player.seek(to: event.positionTime)
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.publishIfChanged() }
         }
     }
 
-    private func handle(_ command: MPRemoteCommand, _ action: @escaping @MainActor (Player) -> Void) {
-        command.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
+    /// Runs `action` on the main actor. Nothing promises which thread these
+    /// commands arrive on: on the main one it answers at once; on another it
+    /// hops over and answers success.
+    private func handle(_ command: MPRemoteCommand, _ action: @escaping @MainActor (Player, MPRemoteCommandEvent) -> Void) {
+        command.addTarget { [weak self] event in
+            nonisolated(unsafe) let event = event
+            guard Thread.isMainThread else {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, self.player.current != nil else { return }
+                        action(self.player, event)
+                        self.publish()
+                    }
+                }
+                return .success
+            }
+            return MainActor.assumeIsolated {
                 guard let self, self.player.current != nil else { return .noActionableNowPlayingItem }
-                action(self.player)
+                action(self.player, event)
                 self.publish()
                 return .success
             }

@@ -58,7 +58,6 @@ struct ArtistDetailView: View {
     @Environment(AppModel.self) private var model
     let artist: ArtistItem
     @State private var detail: Loadable<ArtistDetail> = .loading
-    @State private var showAllSongs = false
 
     var body: some View {
         let loaded: ArtistDetail? = if case .loaded(let d) = detail { d } else { nil }
@@ -77,7 +76,13 @@ struct ArtistDetailView: View {
             }
         }
         .task {
-            do { detail = .loaded(try await model.provider.detail(for: artist)) } catch { detail = .failed(error.localizedDescription) }
+            do {
+                let loaded = try await model.provider.detail(for: artist)
+                detail = .loaded(loaded)
+                model.popularSongCount = loaded.topSongs.count
+            } catch {
+                detail = .failed(error.localizedDescription)
+            }
         }
     }
 
@@ -120,12 +125,12 @@ struct ArtistDetailView: View {
     @ViewBuilder
     private func content(_ detail: ArtistDetail) -> some View {
         if !detail.topSongs.isEmpty {
-            let songs = showAllSongs ? detail.topSongs : Array(detail.topSongs.prefix(5))
+            let songs = model.showAllPopular ? detail.topSongs : Array(detail.topSongs.prefix(5))
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "Popular") {
                     if detail.topSongs.count > 5 {
-                        Button(showAllSongs ? "Show less" : "Show all \(detail.topSongs.count)") {
-                            withAnimation(.snappy) { showAllSongs.toggle() }
+                        Button(model.showAllPopular ? "Show less" : "Show all \(detail.topSongs.count)") {
+                            withAnimation(.snappy) { model.showAllPopular.toggle() }
                         }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))

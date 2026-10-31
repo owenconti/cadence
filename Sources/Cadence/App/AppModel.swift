@@ -35,6 +35,12 @@ final class AppModel {
     @ObservationIgnored private var nowPlaying: NowPlaying?
 
     var section: SidebarSection = .discover
+    /// The Playlists page's sort, here so ⌘K can set it too.
+    var playlistSort: PlaylistSort = .recent
+    /// The open artist page shows all its popular songs, not just five.
+    var showAllPopular = false
+    /// How many popular songs the open artist page has (0 until loaded).
+    var popularSongCount = 0
     /// ⌘B. Kept across launches.
     var sidebarHidden = UserDefaults.standard.bool(forKey: AppModel.sidebarHiddenKey) {
         didSet { UserDefaults.standard.set(sidebarHidden, forKey: Self.sidebarHiddenKey) }
@@ -79,7 +85,6 @@ final class AppModel {
     @ObservationIgnored private var sourceGeneration = 0
     /// Counts moves between pages, so a slow lookup can tell it's been passed by.
     @ObservationIgnored private var navigationMoves = 0
-    @ObservationIgnored private var playRequest = 0
     /// Counts playlist refreshes; only the latest one's result is used.
     @ObservationIgnored private var playlistRefreshes = 0
     private static let sourceKey = "cadence.source"
@@ -109,10 +114,10 @@ final class AppModel {
         }
         handoff = Handoff.take()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.savePlayback() }
+            MainActor.assumeIsolated { _ = self?.savePlayback() }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.savePlayback(force: true) }
+            MainActor.assumeIsolated { _ = self?.savePlayback(force: true) }
         }
         if let frame = handoff?.windowFrame {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -313,7 +318,11 @@ final class AppModel {
     /// Relaunches into the build on disk (newer, if `update.isReady`), carrying
     /// the queue and position across so music resumes after a brief pause.
     func restartApp() {
-        savePlayback(force: true)
+        // Restarting without what's playing on disk would lose it.
+        guard savePlayback(force: true) || player.current == nil else {
+            player.report("Couldn't save what's playing, so Cadence didn't restart. Check there's space on the disk.")
+            return
+        }
         update.relaunch(saving: Handoff(
             section: section.rawValue,
             windowFrame: NSApp.appWindow?.frame,
@@ -321,9 +330,10 @@ final class AppModel {
         ))
     }
 
-    func savePlayback(force: Bool = false) {
-        guard RunMode.current != .snapshots else { return }
-        playbackStore.save(player, force: force)
+    @discardableResult
+    func savePlayback(force: Bool = false) -> Bool {
+        guard RunMode.current != .snapshots else { return true }
+        return playbackStore.save(player, force: force)
     }
 
     /// Brings back what was playing when the app last ran: paused on a normal
@@ -343,7 +353,8 @@ final class AppModel {
         let byID = Dictionary(saved.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let unshuffled = saved.position.unshuffledIDs?.compactMap { byID[$0] }
         player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing,
-                      shuffled: saved.position.shuffled ?? false, unshuffled: unshuffled, from: saved.position.source)
+                      shuffled: saved.position.shuffled ?? false, unshuffledPositions: saved.position.unshuffledPositions,
+                      unshuffled: unshuffled, from: saved.position.source)
         // Library artwork is a handle that only works in the session that
         // fetched it, so restored songs need theirs fetched again. The playing
         // song and what's next come first.
@@ -464,6 +475,12 @@ final class AppModel {
 
     // MARK: Layout
 
+    /// What belongs to the page being left.
+    private func leavePage() {
+        showAllPopular = false
+        popularSongCount = 0
+    }
+
     func resetPanelWidths() {
         sidebarWidth = 232
         nowPanelWidth = 340
@@ -481,6 +498,7 @@ final class AppModel {
 
     func select(_ section: SidebarSection) {
         navigationMoves += 1
+        leavePage()
         self.section = section
         stack = []
         nowPlayingMode = false
@@ -488,6 +506,7 @@ final class AppModel {
 
     func navigate(_ route: Route) {
         navigationMoves += 1
+        if route != self.route { leavePage() }
         nowPlayingMode = false
         guard route != self.route else { return }
         stack.append(route)
@@ -495,6 +514,7 @@ final class AppModel {
 
     func back() {
         navigationMoves += 1
+        leavePage()
         _ = stack.popLast()
     }
 
@@ -522,8 +542,8 @@ final class AppModel {
     /// Loads an album or playlist and plays it, unless something else was
     /// played (or another one asked for) while it loaded.
     func play(_ item: ShelfItem, shuffled: Bool? = false) async {
-        playRequest += 1
-        let request = playRequest, revision = player.revision, provider = self.provider
+        // Claimed now, while loading: a restore finishing meanwhile gives way.
+        let claim = player.claim(), provider = self.provider
         let tracks: [TrackItem]?, source: QueueSource
         switch item {
         case .album(let album):
@@ -533,7 +553,7 @@ final class AppModel {
             tracks = try? await provider.tracks(in: playlist)
             source = .playlist(playlist)
         }
-        guard let tracks, request == playRequest, revision == player.revision, provider === self.provider else { return }
+        guard let tracks, player.stillCurrent(claim), provider === self.provider else { return }
         play(tracks, shuffled: shuffled, from: source)
     }
 

@@ -34,6 +34,17 @@ press() {
     for _ in 1 2 3 4 5; do post press; sleep 0.4; [[ "$(state pressed)" == "$presses" ]] && return 0; done
     return 1
 }
+# Runs steps inside the app, in order (see CheckHooks `run`), and waits for them.
+steps() {
+    local id="$RANDOM$RANDOM$RANDOM"
+    { echo "$id"; printf '%s\n' "$@"; } > "$OUT/run.txt"
+    for _ in $(seq 1 40); do post run; sleep 0.5; [[ "$(state ran)" == "$id" ]] && return 0; done
+    return 1
+}
+# Cadence's queue and the engine's must match: same songs, same order.
+in_step() {
+    [[ "$(state queueIDs)" == "$(state engineQueueIDs)" ]] || fail "$1: Cadence's queue and the player's differ"
+}
 fail() { echo "FAIL: $*" >&2; pkill -f "$APP/Contents/MacOS/Cadence" || true; exit 1; }
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
@@ -156,6 +167,58 @@ press cmd-s && [[ "$(state shuffled)" == True ]] || fail "⌘S didn't turn shuff
 press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuffle off"
 [[ "$(state upNextAll)" == "$inorder" ]] || fail "shuffle on then off changed the order of a queue with a song in it twice"
 echo "ok   ⌘S on and off puts a queue with a song in it twice back in order"
+
+# The player's timing paths, with the simulated engine slowed down or
+# refusing, as Apple Music can be.
+steps "sim prepare=2" "play-playlist 0" "toggle" "wait 3" "sim prepare=0" || fail "steps didn't run"
+[[ "$(state playingNow)" == False && "$(state enginePlaying)" == False ]] || fail "a pause while the queue was still starting didn't hold"
+in_step "pause while starting"
+echo "ok   a pause while a slow queue is still starting holds"
+
+steps "sim prepare=2" "toggle" "play-playlist 1" "wait 3" "sim prepare=0" || fail "steps didn't run"
+[[ "$(state playingNow)" == True && "$(state enginePlaying)" == True ]] || fail "a queue that took a while to start never started playing"
+in_step "slow start"
+echo "ok   a queue that takes a while to start still plays"
+
+steps "sim insert=2" "play-playlist 0" "wait 0.5" "add-to-queue 1 -1" "wait 0.3" "play-playlist 2" "wait 3" "sim insert=0" || fail "steps didn't run"
+in_step "adding a song while another queue started"
+echo "ok   adding a song while a new queue starts leaves the two queues matching"
+
+queue=$(state queueIDs)
+steps "sim refuse=1" "add-to-queue 1 -1" "wait 0.5" "sim refuse=0" || fail "steps didn't run"
+[[ "$(state queueIDs)" == "$queue" ]] || fail "a song the player refused still went into the queue"
+[[ "$(state notice)" == Couldn* ]] || fail "a refused song didn't say so: '$(state notice)'"
+in_step "refused song"
+echo "ok   a song the player refuses stays out of the queue, and the Now panel says why"
+
+steps "sim play=1.5" "toggle" "toggle" "toggle" "wait 2.5" "sim play=0" || fail "steps didn't run"
+[[ "$(state playingNow)" == False && "$(state enginePlaying)" == False ]] || fail "a slow play queued before a pause won over it"
+echo "ok   a pause given after a slow play still wins"
+
+steps "toggle" "sim insert=6" "add-to-queue 1 0" "wait 0.3" || fail "steps didn't run"
+t1=$(state engineTime); p1=$(state position); sleep 1.5; p2=$(state position)
+python3 -c "import sys; sys.exit(0 if $p2 - $p1 >= 1 else 1)" || fail "the position stood still while a song was being added ($p1 → $p2)"
+steps "wait 5" "sim insert=0" || fail "steps didn't run"
+in_step "slow add"
+echo "ok   the position keeps moving while a slow add is under way"
+
+until_state play-duplicates index 2 || fail "couldn't play a queue with a song in it twice"
+sleep 1
+[[ "$(state engineIndex)" == 2 ]] || fail "the player started at its entry $(state engineIndex), not the second copy (2)"
+in_step "song queued twice"
+echo "ok   the player starts at the very copy of a song queued twice"
+
+# Shuffled, from the second copy; restart; shuffle off: the copies must
+# come back in their own order.
+steps "play-duplicates 2 shuffled" "wait 0.5" || fail "steps didn't run"
+expected=$(python3 -c "ids='$(state unshuffledIDs)'.split(','); del ids[2]; print(','.join(ids))")
+pid=$(state pid)
+post quit; sleep 2
+open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
+[[ "$(state pid)" != "$pid" ]] || fail "still talking to the copy that was asked to quit"
+press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuffle off after reopening"
+[[ "$(state upNextAll)" == "$expected" ]] || fail "after reopening, shuffle off put a song queued twice out of order: $(state upNextAll) instead of $expected"
+echo "ok   shuffled with a song queued twice, reopened, shuffle off: back in order"
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 

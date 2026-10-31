@@ -12,7 +12,18 @@ struct TrackRow: View {
 
     @State private var hovering = false
 
-    private var isCurrent: Bool { model.player.current?.id == track.id }
+    /// The playing song, and, if this list has it more than once, the very
+    /// copy that's playing.
+    private var isCurrent: Bool {
+        guard model.player.current?.id == track.id else { return false }
+        guard let row = rowIndex, context.filter({ $0.id == track.id }).count > 1 else { return true }
+        return context[..<row].filter { $0.id == track.id }.count == model.player.currentCopy
+    }
+
+    /// This row's place in `context`.
+    private var rowIndex: Int? {
+        number.map { $0 - 1 }.flatMap { context.indices.contains($0) && context[$0].id == track.id ? $0 : nil }
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -100,8 +111,7 @@ struct TrackRow: View {
 
     private func play() {
         // The row's own place in the list: a playlist can hold a song twice.
-        let index = number.map { $0 - 1 }.flatMap { context.indices.contains($0) && context[$0].id == track.id ? $0 : nil }
-            ?? context.firstIndex(of: track) ?? 0
+        let index = rowIndex ?? context.firstIndex(of: track) ?? 0
         model.play(context.isEmpty ? [track] : context, startAt: index, from: source)
     }
 }

@@ -3,9 +3,10 @@ import SwiftUI
 struct PlaylistsView: View {
     @Environment(AppModel.self) private var model
     @State private var filter = ""
-    @State private var sort: PlaylistSort = .recent
 
     var body: some View {
+        @Bindable var model = model
+        let sort = model.playlistSort
         let playlists = visible
         // Until the playlists (or, for Largest, their song counts) are in,
         // cards of the same size stand in so nothing moves when they arrive.
@@ -19,7 +20,7 @@ struct PlaylistsView: View {
                         .redacted(reason: model.playlistsLoaded ? [] : .placeholder)
                 }
                 Spacer()
-                Picker("Sort", selection: $sort) {
+                Picker("Sort", selection: $model.playlistSort) {
                     ForEach(PlaylistSort.allCases, id: \.self) { Text($0.rawValue) }
                 }
                 .pickerStyle(.segmented)
@@ -62,7 +63,7 @@ struct PlaylistsView: View {
     }
 
     private var visible: [PlaylistItem] {
-        model.sortedPlaylists(by: sort, filter: filter)
+        model.sortedPlaylists(by: model.playlistSort, filter: filter)
     }
 }
 

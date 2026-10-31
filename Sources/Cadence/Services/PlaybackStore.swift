@@ -26,6 +26,9 @@ final class PlaybackStore {
         var shuffled: Bool? = false
         /// IDs in the queue's own order while shuffled.
         var unshuffledIDs: [String]?
+        /// The same order as places in the queue, which tells copies of a
+        /// song apart.
+        var unshuffledPositions: [Int]?
         var source: QueueSource?
         var savedAt = Date()
     }
@@ -69,9 +72,10 @@ final class PlaybackStore {
         let entries = ids != savedQueueIDs ? player.queue.map { Entry(id: $0.id, song: $0.song) } : nil
         let position = Position(live: player.backend == .musicKit, trackID: current.id, index: index, queueFile: nil,
                                 position: player.position, isPlaying: player.isPlaying, shuffled: player.isShuffled,
-                                unshuffledIDs: player.unshuffled?.map(\.id), source: player.source)
+                                unshuffledIDs: player.unshuffled?.map(\.id), unshuffledPositions: player.unshuffledPositions,
+                                source: player.source)
         if entries == nil, !force, let last = savedPosition, last.trackID == position.trackID, last.index == position.index,
-           last.isPlaying == position.isPlaying, last.shuffled == position.shuffled, last.unshuffledIDs == position.unshuffledIDs,
+           last.isPlaying == position.isPlaying, last.shuffled == position.shuffled, last.unshuffledPositions == position.unshuffledPositions,
            last.source == position.source, abs(last.position - position.position) < 3 {
             return true
         }
@@ -144,7 +148,10 @@ final class PlaybackStore {
         Self.log.info("restored \(tracks.count, privacy: .public) of \(entries.count, privacy: .public) queued songs (\(entries.count - missing.count, privacy: .public) stored whole)")
         // A song that's gone shifts the positions; the index then no longer fits.
         var position = read.position
-        if tracks.count != entries.count { position.index = nil }
+        if tracks.count != entries.count {
+            position.index = nil
+            position.unshuffledPositions = nil
+        }
         // What's on disk now: the queue as saved, before any lookups dropped songs.
         let disk = self.disk, savedIDs = entries.map(\.id), file = position.queueFile ?? "queue.json"
         writer.sync {

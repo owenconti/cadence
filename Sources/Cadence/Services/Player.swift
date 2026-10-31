@@ -1,41 +1,29 @@
 import Foundation
-import MusicKit
 import Observation
 import os
 
-/// Owns the play queue. In demo mode it simulates playback with a clock; in
-/// live mode it drives `ApplicationMusicPlayer` and mirrors its state.
+/// Owns the play queue and decides what plays; a `LiveEngine` does the
+/// playing (Apple Music, or the simulated engine for the demo library).
 @MainActor
 @Observable
 final class Player {
     enum Backend { case demo, musicKit }
 
-    var backend: Backend = .demo
-    private(set) var queue: [TrackItem] = [] {
-        didSet { if keys.count != queue.count { keys = queue.map { _ in newKey() } } }
+    var backend: Backend = .demo {
+        didSet { engine = backend == .musicKit ? MusicKitEngine() : SimulatedEngine() }
     }
+    /// What plays the music. Every command reaches it through `live`, in order.
+    @ObservationIgnored private(set) var engine: LiveEngine = SimulatedEngine()
+
+    private(set) var queue: [TrackItem] = []
     /// One key per queued copy of a song, in step with `queue`, so the same
-    /// song queued twice stays two distinct entries (shuffle, Apple Music).
+    /// song queued twice stays two distinct entries (shuffle, saving).
     @ObservationIgnored private(set) var keys: [Int] = []
     @ObservationIgnored private var lastKey = 0
     private(set) var index: Int?
-    /// Shown as playing: what was asked for, or what Apple Music reports once
+    /// Shown as playing: what was asked for, or what the engine reports once
     /// no command is still on its way.
     private(set) var isPlaying = false
-    /// What was last asked for. Apple Music commands act on this when they
-    /// run, so a later pause wins over an earlier play still in flight.
-    @ObservationIgnored private var wantsPlaying = false
-    /// Apple Music commands not yet finished; until they are, its reported
-    /// state is out of date and doesn't overwrite `isPlaying`.
-    @ObservationIgnored private var pendingCommands = 0
-    @ObservationIgnored private var commandChain: Task<Void, Never>?
-    /// When the last command finished; Apple Music takes a moment to report
-    /// its effect.
-    @ObservationIgnored private var settledAt = Date.distantPast
-    /// Bumped by anything that starts or replaces playback, so work begun
-    /// before (restoring, loading an album to play) can tell it's been
-    /// overtaken.
-    @ObservationIgnored private(set) var revision = 0
     private(set) var position: TimeInterval = 0
     /// Where the queue came from (a playlist, album, …).
     private(set) var source: QueueSource?
@@ -48,14 +36,31 @@ final class Player {
     /// wouldn't queue), shown in the Now panel for a few seconds.
     private(set) var notice: String?
     @ObservationIgnored private var noticeClear: Task<Void, Never>?
-    /// Bumped whenever Apple Music is given a new queue, so a start still
-    /// preparing for an older one gives up instead of acting on the new one.
+
+    /// What was last asked for. Commands act on this when their turn comes,
+    /// so a later pause wins over an earlier play still in flight.
+    @ObservationIgnored private var wantsPlaying = false
+    /// Engine commands not yet finished; until they are, its reported play
+    /// state is out of date and doesn't overwrite `isPlaying`.
+    @ObservationIgnored private var pendingCommands = 0
+    /// Queue replacements not yet handed to the engine; until they are, its
+    /// time and current entry belong to the old queue.
+    @ObservationIgnored private var pendingStarts = 0
+    @ObservationIgnored private var commandChain: Task<Void, Never>?
+    /// When the last command finished; the engine takes a moment to report
+    /// its effect.
+    @ObservationIgnored private var settledAt = Date.distantPast
+    /// Bumped whenever the engine is to get a new queue, so a command meant
+    /// for an older one gives up instead of acting on the new one.
     @ObservationIgnored private var liveGeneration = 0
+    /// Bumped by every user request to play something (including one still
+    /// loading its songs, via `claim`), so work begun before, like restoring
+    /// the saved queue, can tell it's been overtaken.
+    @ObservationIgnored private(set) var revision = 0
 
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var lastUnmatchedEntry: String?
     private static let log = Logger(subsystem: "com.owenconti.cadence", category: "player")
-    private let tickInterval: TimeInterval = 0.25
 
     var current: TrackItem? {
         guard let index, queue.indices.contains(index) else { return nil }
@@ -65,6 +70,33 @@ final class Player {
     var upNext: ArraySlice<TrackItem> {
         guard let index, index + 1 < queue.count else { return [] }
         return queue[(index + 1)...]
+    }
+
+    /// For saving: each entry of the queue's own order, as a place in `queue`.
+    var unshuffledPositions: [Int]? {
+        guard let unshuffledKeys else { return nil }
+        let place = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
+        let positions = unshuffledKeys.compactMap { place[$0] }
+        return positions.count == unshuffledKeys.count ? positions : nil
+    }
+
+    /// Which copy of the current song is playing, counted in the order the
+    /// list was played from (`unshuffled`, else the queue): 0 for the first.
+    /// Lets a song list mark the right row when a song appears twice.
+    var currentCopy: Int? {
+        guard let index, let current else { return nil }
+        let key = keys[index]
+        let order: [(Int, String)] = if let unshuffledKeys, let unshuffled {
+            zip(unshuffledKeys, unshuffled.map(\.id)).map { ($0, $1) }
+        } else {
+            zip(keys, queue.map(\.id)).map { ($0, $1) }
+        }
+        var copy = 0
+        for (k, id) in order where id == current.id {
+            if k == key { return copy }
+            copy += 1
+        }
+        return nil
     }
 
     init() {
@@ -81,18 +113,22 @@ final class Player {
         return lastKey
     }
 
-    /// Sets the queue with fresh keys for every entry.
-    private func setQueue(_ tracks: [TrackItem]) {
-        keys = tracks.map { _ in newKey() }
-        queue = tracks
-    }
-
     private func setPlaying(intent playing: Bool) {
         wantsPlaying = playing
         isPlaying = playing
     }
 
     // MARK: Commands
+
+    /// Marks a request to play something that still has to load its songs:
+    /// anything begun before (a restore) gives way. Check `stillCurrent`
+    /// with the result once loaded.
+    func claim() -> Int {
+        revision += 1
+        return revision
+    }
+
+    func stillCurrent(_ claim: Int) -> Bool { revision == claim }
 
     /// Plays `tracks` from `start`. `shuffled` turns shuffle mode on or off;
     /// nil keeps the current mode (picking a song while shuffled plays it
@@ -123,47 +159,51 @@ final class Player {
         index = isShuffled ? 0 : startIndex
         position = 0
         setPlaying(intent: true)
-        if backend == .musicKit { startLive(at: index ?? 0) }
+        startLive(at: index ?? 0)
     }
 
-    /// Picks up a queue carried over from before a restart.
-    func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool,
-                shuffled: Bool = false, unshuffled: [TrackItem]? = nil, from source: QueueSource? = nil) {
+    /// Picks up a queue carried over from before a restart. Not a request of
+    /// its own: a play asked for meanwhile has already won (see `claim`).
+    /// `unshuffledPositions` is the queue's own order as places in `tracks`;
+    /// older saves only have the songs (`unshuffled`).
+    func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool, shuffled: Bool = false,
+                unshuffledPositions: [Int]? = nil, unshuffled: [TrackItem]? = nil, from source: QueueSource? = nil) {
         guard tracks.indices.contains(start) else { return }
-        revision += 1
         self.source = source
         isShuffled = shuffled
-        setQueue(tracks)
-        // Copies of a song in the saved order pair up with copies in the queue.
-        if shuffled, let unshuffled {
+        keys = tracks.map { _ in newKey() }
+        queue = tracks
+        if shuffled, let positions = unshuffledPositions, positions.allSatisfy(tracks.indices.contains) {
+            self.unshuffled = positions.map { tracks[$0] }
+            unshuffledKeys = positions.map { keys[$0] }
+        } else if shuffled, let unshuffled {
+            // Copies of a song pair up in order of appearance.
             var pool: [String: [Int]] = [:]
             for (track, key) in zip(tracks, keys) { pool[track.id, default: []].append(key) }
-            self.unshuffledKeys = unshuffled.map { track in pool[track.id]?.isEmpty == false ? pool[track.id]!.removeFirst() : newKey() }
+            unshuffledKeys = unshuffled.map { track in pool[track.id]?.isEmpty == false ? pool[track.id]!.removeFirst() : newKey() }
             self.unshuffled = unshuffled
         } else {
             self.unshuffled = nil
-            self.unshuffledKeys = nil
+            unshuffledKeys = nil
         }
         index = start
         self.position = min(max(position, 0), tracks[start].duration)
         setPlaying(intent: playing)
-        if backend == .musicKit { startLive(at: start, from: self.position) }
+        startLive(at: start, from: self.position)
     }
 
     func toggle() {
         guard current != nil else { return }
         setPlaying(intent: !wantsPlaying)
-        guard backend == .musicKit else { return }
         // Acts on the latest intent when its turn comes.
-        live {
-            let player = ApplicationMusicPlayer.shared
-            if self.wantsPlaying { try await player.play() } else { player.pause() }
+        live { engine in
+            if self.wantsPlaying { try await engine.play() } else { engine.pause() }
         }
     }
 
     func next() {
         guard let index else { return }
-        if backend == .musicKit { live { try await ApplicationMusicPlayer.shared.skipToNextEntry() } }
+        live { engine in try await engine.skipToNext() }
         if index + 1 < queue.count {
             self.index = index + 1
             position = 0
@@ -179,7 +219,7 @@ final class Player {
             seek(to: 0)
             return
         }
-        if backend == .musicKit { live { try await ApplicationMusicPlayer.shared.skipToPreviousEntry() } }
+        live { engine in try await engine.skipToPrevious() }
         self.index = index - 1
         position = 0
     }
@@ -192,22 +232,21 @@ final class Player {
         index = target
         position = 0
         setPlaying(intent: true)
-        if backend == .musicKit { startLive(at: target) }
+        startLive(at: target)
     }
 
     func seek(to time: TimeInterval) {
         position = max(0, time)
-        guard backend == .musicKit else { return }
         let time = position
-        live { ApplicationMusicPlayer.shared.playbackTime = time }
+        live { engine in engine.playbackTime = time }
     }
 
     func playNext(_ track: TrackItem) {
         guard index != nil else { play([track]); return }
-        // Mirrors Apple Music's queue exactly (no de-duplicating), so positions
-        // in the two stay aligned for syncing the current song. With Apple
-        // Music, ours changes only once it has taken the song.
-        insertLive(track, position: .afterCurrentEntry) { [weak self] in
+        // Mirrors the engine's queue exactly (no de-duplicating), so positions
+        // in the two stay aligned for syncing the current song. Ours changes
+        // only once the engine has taken the song.
+        insertLive(track, afterCurrent: true) { [weak self] in
             guard let self, let index = self.index else { return }
             let key = self.newKey()
             if let keys = self.unshuffledKeys, let at = keys.firstIndex(of: self.keys[index]) {
@@ -221,7 +260,7 @@ final class Player {
 
     func addToQueue(_ track: TrackItem) {
         guard index != nil else { play([track]); return }
-        insertLive(track, position: .tail) { [weak self] in
+        insertLive(track, afterCurrent: false) { [weak self] in
             guard let self else { return }
             let key = self.newKey()
             self.keys.append(key)
@@ -231,19 +270,17 @@ final class Player {
         }
     }
 
-    /// Runs `apply` once Apple Music has queued `track` (at once in demo
-    /// mode); if it won't, nothing changes and the Now panel says so. If the
-    /// queue was replaced before its turn came, it's dropped from both.
-    private func insertLive(_ track: TrackItem, position: MusicPlayer.Queue.EntryInsertionPosition, apply: @escaping @MainActor () -> Void) {
-        guard backend == .musicKit else { return apply() }
-        guard let song = track.song else {
-            return report("Couldn't queue “\(track.title)”: Apple Music doesn't have it")
-        }
+    /// Runs `apply` once the engine has queued `track`; if it won't, nothing
+    /// changes and the Now panel says so. If the queue is replaced before or
+    /// while it's being added, it's dropped from ours too: the engine gets
+    /// the new queue next, without it.
+    private func insertLive(_ track: TrackItem, afterCurrent: Bool, apply: @escaping @MainActor () -> Void) {
         let generation = liveGeneration
-        enqueue {
+        enqueue { engine in
             guard generation == self.liveGeneration else { return }
             do {
-                try await ApplicationMusicPlayer.shared.queue.insert(song, position: position)
+                try await engine.insert(track, afterCurrent: afterCurrent)
+                guard generation == self.liveGeneration else { return }
                 apply()
             } catch {
                 Self.log.error("couldn't queue \(track.title, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -290,43 +327,19 @@ final class Player {
     }
 
     /// Puts the entries after the current one in `order` (queue indices), and
-    /// moves Apple Music's own queue entries to match without restarting
-    /// what's playing.
+    /// moves the engine's entries to match without restarting what's playing.
     private func reorderUpcoming(_ order: [Int]) {
         guard let index else { return }
-        let before = Array(queue[(index + 1)...])
-        let newKeys = order.map { keys[$0] }
-        let upcoming = order.map { queue[$0] }
-        keys.replaceSubrange((index + 1)..., with: newKeys)
-        queue.replaceSubrange((index + 1)..., with: upcoming)
-        guard backend == .musicKit else { return }
-
+        let offsets = order.map { $0 - (index + 1) }
+        keys.replaceSubrange((index + 1)..., with: order.map { keys[$0] })
+        queue.replaceSubrange((index + 1)..., with: order.map { queue[$0] })
         let generation = liveGeneration
-        live {
+        live { engine in
             guard generation == self.liveGeneration else { return }
-            let player = ApplicationMusicPlayer.shared
-            var entries = player.queue.entries
-            guard let current = player.queue.currentEntry,
-                  let at = entries.firstIndex(where: { $0.id == current.id }) else { return }
-            let next = entries.index(after: at)
-            let liveUpcoming = Array(entries[next...])
-            guard liveUpcoming.count == before.count else {
-                Self.log.error("Apple Music has \(liveUpcoming.count, privacy: .public) songs up next, we have \(before.count, privacy: .public); rebuilding its queue")
+            if !engine.reorderUpcoming(offsets) {
+                Self.log.error("the player's songs up next don't line up with ours; rebuilding its queue")
                 self.startLive(at: index, from: self.position)
-                return
             }
-            // Each of our songs keeps its own Apple Music entry, now in the new
-            // order (copies of one song are interchangeable).
-            var pool: [String: [MusicPlayer.Queue.Entry]] = [:]
-            for (track, entry) in zip(before, liveUpcoming) { pool[track.id, default: []].append(entry) }
-            let reordered = upcoming.compactMap { track -> MusicPlayer.Queue.Entry? in
-                guard var list = pool[track.id], !list.isEmpty else { return nil }
-                let entry = list.removeFirst()
-                pool[track.id] = list
-                return entry
-            }
-            entries.replaceSubrange(next..., with: reordered)
-            player.queue.entries = entries
         }
     }
 
@@ -347,8 +360,9 @@ final class Player {
     func stop() {
         revision += 1
         liveGeneration += 1
-        if backend == .musicKit { live { ApplicationMusicPlayer.shared.stop() } }
-        setQueue([])
+        live { engine in engine.stop() }
+        keys = []
+        queue = []
         unshuffled = nil
         unshuffledKeys = nil
         source = nil
@@ -357,41 +371,44 @@ final class Player {
         position = 0
     }
 
+    /// For system controls (media keys, Control Center).
+    func setPlaying(_ playing: Bool) {
+        if playing != wantsPlaying { toggle() }
+    }
+
     // MARK: Clock
 
     private func tick() {
-        switch backend {
-        case .demo:
-            guard isPlaying, let current else { return }
-            position += tickInterval
-            if position >= current.duration { next() }
-        case .musicKit:
-            // While a command is on its way, Apple Music's state is the old one.
-            guard current != nil, pendingCommands == 0, Date().timeIntervalSince(settledAt) > 1 else { return }
-            let player = ApplicationMusicPlayer.shared
-            position = player.playbackTime
-            // Paused or played from outside (headphones, another app).
-            let playing = player.state.playbackStatus == .playing
-            if playing != isPlaying { isPlaying = playing; wantsPlaying = playing }
-            syncCurrentEntry(player)
+        guard current != nil else { return }
+        // Time and the current song carry on during other commands (adding a
+        // song, say); only a queue not yet handed over makes them stale.
+        if pendingStarts == 0 {
+            position = engine.playbackTime
+            syncCurrentEntry()
+        }
+        // The play state, though, is only believed once commands have landed.
+        guard pendingCommands == 0, Date().timeIntervalSince(settledAt) > 1 else { return }
+        let playing = engine.isPlaying
+        if playing != isPlaying {
+            // Paused, played or run out from outside (headphones, another app,
+            // the end of the queue).
+            isPlaying = playing
+            wantsPlaying = playing
         }
     }
 
-    /// Follows Apple Music onto whichever song it's playing. Library songs can
-    /// report a different ID than the one queued, so match by position in its
-    /// queue (which mirrors ours), falling back to title and artist.
-    private func syncCurrentEntry(_ player: ApplicationMusicPlayer) {
-        guard let entry = player.queue.currentEntry else { return }
-        let entries = player.queue.entries
+    /// Follows the engine onto whichever song it's playing. Its entries
+    /// mirror our queue, so match by position; if they don't line up (songs
+    /// it couldn't play), fall back to the nearest same title and artist.
+    private func syncCurrentEntry() {
+        guard let entry = engine.currentEntry else { return }
         var match: Int?
-        if entries.count == queue.count, let position = entries.firstIndex(where: { $0.id == entry.id }),
-           queue[position].title == entry.title {
-            match = position
+        if entry.count == queue.count, queue.indices.contains(entry.position), queue[entry.position].title == entry.title {
+            match = entry.position
         } else {
-            // The nearest song with the same title and artist to where we were.
             let here = index ?? 0
             match = queue.indices
-                .filter { queue[$0].title == entry.title && (entry.subtitle == nil || queue[$0].artistName == entry.subtitle) }
+                .filter { queue[$0].title == entry.title && (entry.artist == nil || queue[$0].artistName == entry.artist) }
                 .min { abs($0 - here) < abs($1 - here) }
         }
         if let match {
@@ -399,66 +416,59 @@ final class Player {
                 Self.log.info("now playing #\(match, privacy: .public) \(entry.title, privacy: .public) (was #\(self.index ?? -1, privacy: .public))")
                 index = match
             }
-        } else if lastUnmatchedEntry != entry.id {
-            lastUnmatchedEntry = entry.id
-            Self.log.error("can't find \(entry.title, privacy: .public) – \(entry.subtitle ?? "", privacy: .public) in our queue of \(self.queue.count, privacy: .public); Apple Music has \(entries.count, privacy: .public) entries")
+        } else if lastUnmatchedEntry != entry.title {
+            lastUnmatchedEntry = entry.title
+            Self.log.error("can't find \(entry.title, privacy: .public) – \(entry.artist ?? "", privacy: .public) in our queue of \(self.queue.count, privacy: .public); the player has \(entry.count, privacy: .public) entries")
         }
     }
 
-    /// For system controls (media keys, Control Center).
-    func setPlaying(_ playing: Bool) {
-        if playing != wantsPlaying { toggle() }
-    }
+    // MARK: Engine
 
-    // MARK: MusicKit
-
-    /// Gives Apple Music the queue, starting at `start`. One entry per copy of
-    /// a song, starting at the very copy asked for. Whether it then plays
-    /// follows what's wanted when preparing finishes, so a pause in the
-    /// meantime holds; a newer queue cancels this one.
+    /// Gives the engine the queue as it is now, starting at `start`. Whether
+    /// it then plays follows what's wanted when preparing finishes, so a
+    /// pause in the meantime holds; a newer queue cancels this one.
     private func startLive(at start: Int, from position: TimeInterval = 0) {
         liveGeneration += 1
         let generation = liveGeneration
         let tracks = queue
-        live {
+        pendingStarts += 1
+        enqueue { engine in
+            defer { self.pendingStarts -= 1 }
             guard generation == self.liveGeneration else { return }
-            var entries: [MusicPlayer.Queue.Entry] = []
-            var first: MusicPlayer.Queue.Entry?
-            for (i, track) in tracks.enumerated() {
-                guard let song = track.song else { continue }
-                let entry = MusicPlayer.Queue.Entry(song)
-                entries.append(entry)
-                if i >= start, first == nil { first = entry }
-            }
-            guard !entries.isEmpty else { return }
-            let player = ApplicationMusicPlayer.shared
-            player.queue = ApplicationMusicPlayer.Queue(entries, startingAt: first)
-            try await player.prepareToPlay()
-            guard generation == self.liveGeneration else { return }
-            if position > 0 { player.playbackTime = position }
-            if self.wantsPlaying { try await player.play() } else { player.pause() }
-        }
-    }
-
-    /// Runs Apple Music commands one at a time, in the order they were
-    /// given, reporting any that fail.
-    private func live(_ work: @escaping @MainActor () async throws -> Void) {
-        enqueue {
             do {
-                try await work()
+                engine.setQueue(tracks, startingAt: start)
+                try await engine.prepare()
+                guard generation == self.liveGeneration else { return }
+                if position > 0 { engine.playbackTime = position }
+                if self.wantsPlaying { try await engine.play() } else { engine.pause() }
             } catch {
-                Self.log.error("Apple Music: \(error.localizedDescription, privacy: .public)")
+                Self.log.error("couldn't start playing: \(error.localizedDescription, privacy: .public)")
                 self.report(error.localizedDescription)
             }
         }
     }
 
-    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
-        let previous = commandChain
+    /// Runs an engine command in turn, reporting it if it fails.
+    private func live(_ work: @escaping @MainActor (LiveEngine) async throws -> Void) {
+        enqueue { engine in
+            do {
+                try await work(engine)
+            } catch {
+                Self.log.error("player: \(error.localizedDescription, privacy: .public)")
+                self.report(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Engine commands run one at a time, in the order they were given, on
+    /// the engine of the moment they were given (switching library stops the
+    /// old one, not the new).
+    private func enqueue(_ work: @escaping @MainActor (LiveEngine) async -> Void) {
+        let previous = commandChain, engine = self.engine
         pendingCommands += 1
         commandChain = Task { @MainActor in
             await previous?.value
-            await work()
+            await work(engine)
             self.pendingCommands -= 1
             self.settledAt = Date()
         }

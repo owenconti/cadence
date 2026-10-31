@@ -35,7 +35,8 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 - `Services/MusicProvider.swift`: the protocol the UI depends on
 - `Services/MusicKitProvider.swift`: live library and catalog (recently played, personal recommendations, charts, search)
 - `Services/DemoProvider.swift`: offline catalog
-- `Services/Player.swift`: queue, plus `ApplicationMusicPlayer` (live) or a simulated clock (demo)
+- `Services/Player.swift`: the queue and what should play; commands reach the engine one at a time, in order
+- `Services/LiveEngine.swift`: what plays it: Apple Music (`MusicKitEngine`) or `SimulatedEngine` for the demo library, which `make check` also slows down or makes refuse songs
 - `App/AppUpdate.swift`: notices a newer build on disk, and Restart app with its playback handoff
 - `App/RunMode.swift`, `App/CheckHooks.swift`: throwaway copies for `make check` and `make snapshots`
 - `App/ArtworkAudit.swift`: `make artwork`, which draws every artwork source from the real library and fails on any blank

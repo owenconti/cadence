@@ -157,11 +157,19 @@ enum ArtworkAudit {
                 // A library artist with no picture shows the placeholder, as in
                 // Music. That's right when the catalog has none either, and for
                 // Various Artists, whose catalog picture is just some compilation.
-                let catalog = item.surface == "Artists" ? await catalogArtistArtwork(item.title) : nil
-                if item.surface == "Artists", catalog == nil || item.title == "Various Artists" {
-                    placeholders.append("note \(item.surface): \(item.title) has no picture in Apple Music; shows the placeholder")
-                } else {
-                    failures.append("FAIL \(item.surface): \(item.title)  \(url(item.source))\(catalog.map { "; the catalog has \($0)" } ?? "")")
+                // A lookup that fails proves nothing, so it doesn't excuse a blank.
+                let lookup: Result<String?, Error>? = item.surface == "Artists" ? await catalogArtistArtwork(item.title) : nil
+                switch lookup {
+                case .success(let catalog)?:
+                    if let catalog, item.title != "Various Artists" {
+                        failures.append("FAIL \(item.surface): \(item.title)  \(url(item.source)); the catalog has \(catalog)")
+                    } else {
+                        placeholders.append("note \(item.surface): \(item.title) has no picture in Apple Music; shows the placeholder")
+                    }
+                case .failure(let error)?:
+                    failures.append("FAIL \(item.surface): \(item.title) didn't draw, and looking it up in the catalog failed: \(error.localizedDescription)")
+                case nil:
+                    failures.append("FAIL \(item.surface): \(item.title)  \(url(item.source))")
                 }
             case nil: placeholders.append("note \(item.surface): \(item.title) has no artwork in Apple Music; shows the placeholder")
             }
@@ -232,6 +240,18 @@ enum ArtworkAudit {
                 drawn += 1
                 lines.append("ok   Control Center: artwork loads once a restored song's artwork is refreshed")
             }
+            // A failed load of the same artwork is tried again after a while
+            // (10 s at first), not given up on.
+            let retrier = NowPlayingArtwork()
+            _ = retrier.image(for: current)
+            try? await Task.sleep(for: .seconds(9))
+            let early = retrier.retryDue(for: current)
+            try? await Task.sleep(for: .seconds(11))
+            if early || !retrier.retryDue(for: current) {
+                failures.append("FAIL Control Center: a failed artwork load isn't retried after its wait (due early: \(early))")
+            } else {
+                lines.append("ok   Control Center: a failed artwork load is tried again after 10 s")
+            }
         } else {
             failures.append("FAIL Control Center: no saved queue to test with; play something first")
         }
@@ -267,12 +287,17 @@ enum ArtworkAudit {
     }
 
     /// The catalog artist's picture, for a library artist whose own didn't draw.
-    private static func catalogArtistArtwork(_ name: String) async -> String? {
+    /// Its URL, nil if the catalog has no picture, or the lookup's error.
+    private static func catalogArtistArtwork(_ name: String) async -> Result<String?, Error> {
         var search = MusicCatalogSearchRequest(term: name, types: [Artist.self])
         search.limit = 5
-        let artists = (try? await search.response().artists) ?? []
-        return artists.first { $0.name.caseInsensitiveCompare(name) == .orderedSame && $0.artwork != nil }?
-            .artwork?.url(width: 300, height: 300)?.absoluteString
+        do {
+            let artists = try await search.response().artists
+            return .success(artists.first { $0.name.caseInsensitiveCompare(name) == .orderedSame && $0.artwork != nil }?
+                .artwork?.url(width: 300, height: 300)?.absoluteString)
+        } catch {
+            return .failure(error)
+        }
     }
 
     private static func url(_ source: ArtworkSource) -> String {
