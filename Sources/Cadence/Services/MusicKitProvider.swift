@@ -80,9 +80,15 @@ final class MusicKitProvider: MusicProvider {
         // A song in a playlist often isn't on an album saved to the library;
         // its album then comes back as a stub with no tracks. Use the library
         // album only when it has songs, otherwise find it in the catalog.
-        if let song = track.song, let album = try? await song.with([.albums]).albums?.first,
-           let detailed = try? await album.with([.tracks]), !(detailed.tracks ?? []).isEmpty {
-            return AlbumItem(detailed)
+        // The album reached through the song has an artwork handle that never
+        // loads, so the album is fetched again from the library by ID.
+        if let song = track.song, let stub = try? await song.with([.albums]).albums?.first {
+            var request = MusicLibraryRequest<Album>()
+            request.filter(matching: \.id, equalTo: stub.id)
+            if let album = try? await request.response().items.first,
+               let detailed = try? await album.with([.tracks]), !(detailed.tracks ?? []).isEmpty {
+                return AlbumItem(detailed)
+            }
         }
         var search = MusicCatalogSearchRequest(term: "\(track.albumTitle) \(track.artistName)", types: [Album.self])
         search.limit = 10
