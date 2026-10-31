@@ -217,12 +217,18 @@ final class Player {
         player.queue.entries = entries
     }
 
-    /// Swaps in fresher copies of queued songs (same IDs), e.g. with working
-    /// artwork after a restore. Order and playback are unchanged.
-    func refresh(_ tracks: [TrackItem]) {
-        let fresh = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        queue = queue.map { fresh[$0.id] ?? $0 }
-        unshuffled = unshuffled?.map { fresh[$0.id] ?? $0 }
+    /// Swaps in working artwork for queued songs, by song ID. Nothing else
+    /// about the queue or playback changes.
+    func refreshArtwork(_ artwork: [String: ArtworkSource]) {
+        guard !artwork.isEmpty else { return }
+        func updated(_ track: TrackItem) -> TrackItem {
+            guard let fresh = artwork[track.id] else { return track }
+            var track = track
+            track.artwork = fresh
+            return track
+        }
+        queue = queue.map(updated)
+        unshuffled = unshuffled?.map(updated)
     }
 
     func stop() {

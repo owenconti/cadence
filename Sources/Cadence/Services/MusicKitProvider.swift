@@ -77,18 +77,51 @@ final class MusicKitProvider: MusicProvider {
     }
 
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
-        // Library and catalog IDs can't be told apart (library songs on the Mac
-        // have plain numeric IDs), so try the library first, then the catalog.
-        var songs: [MusicItemID: Song] = [:]
-        var library = MusicLibraryRequest<Song>()
-        library.filter(matching: \.id, memberOf: ids.map { MusicItemID($0) })
-        for song in (try? await library.response().items) ?? [] { songs[song.id] = song }
-        let rest = ids.map { MusicItemID($0) }.filter { songs[$0] == nil }
-        if !rest.isEmpty {
-            let catalog = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: rest)
-            for song in (try? await catalog.response().items) ?? [] { songs[song.id] = song }
+        let songs = await songs(withIDs: ids)
+        return ids.compactMap { id in songs[id].map { song in withID(id, TrackItem(song: song)) } }
+    }
+
+    /// Fresh artwork for songs by ID. Library artwork is a handle that only
+    /// works in the session that fetched it, so saved songs need this.
+    func freshArtwork(for ids: [String]) async -> [String: ArtworkSource] {
+        await songs(withIDs: ids).mapValues { ArtworkSource($0.artwork) }
+    }
+
+    /// Looks songs up one ID at a time, in the library and then the catalog.
+    /// One at a time because a library song found by the numeric ID it has in
+    /// a playlist comes back under a different ("i.…") ID, so results can't be
+    /// matched to a batch request's IDs.
+    private func songs(withIDs ids: [String]) async -> [String: Song] {
+        await withTaskGroup(of: (String, Song?).self) { group in
+            var found: [String: Song] = [:]
+            var pending = ids[...]
+            func next() {
+                guard let id = pending.popFirst() else { return }
+                group.addTask { (id, await Self.song(withID: id)) }
+            }
+            for _ in 0..<8 { next() }
+            for await (id, song) in group {
+                if let song { found[id] = song }
+                next()
+            }
+            return found
         }
-        return ids.compactMap { songs[MusicItemID($0)].map(TrackItem.init(song:)) }
+    }
+
+    private nonisolated static func song(withID id: String) async -> Song? {
+        var library = MusicLibraryRequest<Song>()
+        library.filter(matching: \.id, equalTo: MusicItemID(id))
+        if let song = try? await library.response().items.first { return song }
+        let catalog = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(id))
+        return try? await catalog.response().items.first
+    }
+
+    /// Keeps the ID the song was asked for, so it lines up with queues and
+    /// saved state that use it.
+    private func withID(_ id: String, _ track: TrackItem) -> TrackItem {
+        TrackItem(id: id, title: track.title, artistName: track.artistName, artistID: track.artistID,
+                  albumTitle: track.albumTitle, albumID: track.albumID, duration: track.duration,
+                  artwork: track.artwork, isExplicit: track.isExplicit, song: track.song)
     }
 
     func search(_ term: String) async throws -> SearchResults {

@@ -261,12 +261,20 @@ final class AppModel {
         let unshuffled = saved.position.unshuffledIDs?.compactMap { byID[$0] }
         player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing,
                       shuffled: saved.position.shuffled ?? false, unshuffled: unshuffled)
-        // Saved Apple Music songs carry artwork links that only work in the
-        // session that made them; fetch fresh copies to show artwork again.
-        if provider.isLive, let fresh = try? await provider.tracks(withIDs: saved.tracks.map(\.id)) {
-            player.refresh(fresh)
-            Self.log.info("refreshed \(fresh.count, privacy: .public) of \(saved.tracks.count, privacy: .public) restored songs")
+        // Library artwork is a handle that only works in the session that
+        // fetched it, so restored songs need theirs fetched again. The playing
+        // song and what's next come first.
+        guard let live = provider as? MusicKitProvider else { return }
+        let ids = saved.tracks.map(\.id)
+        let first = Array(ids[start...].prefix(12)) + ids[..<start].suffix(1)
+        let rest = ids.filter { !first.contains($0) }
+        var refreshed = 0
+        for batch in [first, rest] {
+            let artwork = await live.freshArtwork(for: batch)
+            player.refreshArtwork(artwork)
+            refreshed += artwork.count
         }
+        Self.log.info("refreshed artwork for \(refreshed, privacy: .public) of \(ids.count, privacy: .public) restored songs")
     }
 
     func refreshPlaylists() async {
