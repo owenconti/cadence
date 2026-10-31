@@ -40,6 +40,7 @@ enum CheckHooks {
     private static func write(_ model: AppModel, to dir: URL) {
         let state: [String: Any] = [
             "pid": ProcessInfo.processInfo.processIdentifier,
+            "bundle": Bundle.main.bundlePath,
             "phase": model.phase == .ready ? "ready" : "onboarding",
             "section": model.section.rawValue,
             "track": model.player.current?.title ?? NSNull(),

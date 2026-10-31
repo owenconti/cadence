@@ -7,12 +7,12 @@ A proof-of-concept native macOS music app built with SwiftUI and MusicKit, focus
 Tasks are in the `Makefile`; run `make` to list them.
 
 ```sh
-make run      # build and launch build/Cadence.app
-make update   # rebuild it in place; the running app offers Restart app
+make run      # build, install to /Applications and launch
+make update   # rebuild and install; the running app offers Restart app
 make check    # automated update + restart check on a throwaway copy
 ```
 
-`make update` swaps a new build in underneath the running app without touching it. Within a few seconds the app shows **Update ready** in the sidebar. **Restart app** (in ⌘K, from the pill, or with ⌥⌘R) relaunches into the new build. The queue, current song, position and section carry across, so music resumes after a short pause.
+The app installs to `/Applications/Cadence.app`, so it opens like any other app (Spotlight, Launchpad, the Dock). `make update` swaps a new build in underneath the running app without touching it. Within a few seconds the app shows **Update ready** in the sidebar. **Restart app** (in ⌘K, from the pill, or with ⌥⌘R) relaunches into the new build. The queue, current song, position and section carry across, so music resumes after a short pause.
 
 The build signs with the first Apple Development or Developer ID identity in your keychain, as `com.owenconti.cadence`. The app always uses the Apple ID signed into macOS, and once access is granted it connects automatically.
 

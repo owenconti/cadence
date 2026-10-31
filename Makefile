@@ -6,7 +6,7 @@
 help: ## List tasks
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 
-update: ## Rebuild build/Cadence.app in place; a running copy offers Restart app
+update: ## Rebuild and install /Applications/Cadence.app; a running copy offers Restart app
 	@scripts/bundle.sh
 
 check: ## Automated update + restart check on a throwaway copy
@@ -18,7 +18,7 @@ snapshots: ## Screenshot every screen from a throwaway copy into build/check/sna
 	@open -g -n -W --env CADENCE_SNAPSHOTS=$(CURDIR)/build/check/snapshots build/check/Cadence.app
 	@ls build/check/snapshots
 
-run: ## Rebuild and (re)launch the app (for humans; quits a running copy)
+run: ## Rebuild, install and (re)launch the app (for humans; quits a running copy)
 	@scripts/run.sh
 
 icon: ## Re-render the app icon from Support/AppIcon/render.swift

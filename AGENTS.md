@@ -10,10 +10,10 @@ When a change is done:
 
 1. **Check it.** Run `make check`. It plays music on a throwaway debug copy (`build/check/Cadence.app`, demo library), rebuilds that copy in place, confirms "Update ready", restarts it and confirms playback resumed. For visual work, also run `make snapshots` and look at the screenshots in `build/check/snapshots/`. Screen recording isn't available.
 2. **Commit to `main`.** Make one commit per change. There is no remote, so don't push.
-3. **Rebuild the user's app.** Run `make update`. It rebuilds `build/Cadence.app` in place under the running copy. Within about 3 seconds that copy shows "Update ready" in the sidebar, and **Restart app** (⌘K or ⌥⌘R) loads the new build. Before quitting, it saves the queue, current song, position and section; the new copy resumes them after a pause of a second or two.
+3. **Rebuild the user's app.** Run `make update`. It rebuilds and installs `/Applications/Cadence.app` in place, under the running copy. Within about 3 seconds that copy shows "Update ready" in the sidebar, and **Restart app** (⌘K or ⌥⌘R) loads the new build. Before quitting, it saves the queue, current song, position and section; the new copy resumes them after a pause of a second or two.
 4. **Tell the user** what changed and that Restart app (⌘K) is ready.
 
-Never quit, relaunch or open the user's app (`build/Cadence.app`), and don't run `make run`; restarting is the user's choice. Check runs use only the throwaway copy under `build/check/`. It listens for `notifyutil -p com.owenconti.cadence.check.<snapshot|play|restart>`, writes `state.json` and `window.png` to its check folder, and keeps its handoff and saved settings apart from the user's.
+Never quit, relaunch or open the user's app (`/Applications/Cadence.app`), and don't run `make run`; restarting is the user's choice. Check runs use only the throwaway copy under `build/check/`. It listens for `notifyutil -p com.owenconti.cadence.check.<snapshot|play|restart>`, writes `state.json` and `window.png` to its check folder, and keeps its handoff and saved settings apart from the user's.
 
 ## Command palette
 
