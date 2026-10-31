@@ -1,6 +1,7 @@
 import AppKit
 import MusicKit
 import Observation
+import os
 import SwiftUI
 
 enum AccessState: Equatable {
@@ -47,6 +48,7 @@ final class AppModel {
     @ObservationIgnored private var handoff: Handoff?
     @ObservationIgnored private var preloading = false
     private static let sourceKey = "cadence.source"
+    private static let log = Logger(subsystem: "com.owenconti.cadence", category: "app")
 
     var route: Route { stack.last ?? section.route }
 
@@ -259,6 +261,12 @@ final class AppModel {
         let unshuffled = saved.position.unshuffledIDs?.compactMap { byID[$0] }
         player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing,
                       shuffled: saved.position.shuffled ?? false, unshuffled: unshuffled)
+        // Saved Apple Music songs carry artwork links that only work in the
+        // session that made them; fetch fresh copies to show artwork again.
+        if provider.isLive, let fresh = try? await provider.tracks(withIDs: saved.tracks.map(\.id)) {
+            player.refresh(fresh)
+            Self.log.info("refreshed \(fresh.count, privacy: .public) of \(saved.tracks.count, privacy: .public) restored songs")
+        }
     }
 
     func refreshPlaylists() async {

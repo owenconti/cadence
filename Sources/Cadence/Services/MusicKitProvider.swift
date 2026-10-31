@@ -77,18 +77,16 @@ final class MusicKitProvider: MusicProvider {
     }
 
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
-        // Library songs have "i."-prefixed IDs; everything else is catalog.
-        let libraryIDs = ids.filter { $0.hasPrefix("i.") }.map { MusicItemID($0) }
-        let catalogIDs = ids.filter { !$0.hasPrefix("i.") }.map { MusicItemID($0) }
+        // Library and catalog IDs can't be told apart (library songs on the Mac
+        // have plain numeric IDs), so try the library first, then the catalog.
         var songs: [MusicItemID: Song] = [:]
-        if !libraryIDs.isEmpty {
-            var request = MusicLibraryRequest<Song>()
-            request.filter(matching: \.id, memberOf: libraryIDs)
-            for song in try await request.response().items { songs[song.id] = song }
-        }
-        if !catalogIDs.isEmpty {
-            let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: catalogIDs)
-            for song in try await request.response().items { songs[song.id] = song }
+        var library = MusicLibraryRequest<Song>()
+        library.filter(matching: \.id, memberOf: ids.map { MusicItemID($0) })
+        for song in (try? await library.response().items) ?? [] { songs[song.id] = song }
+        let rest = ids.map { MusicItemID($0) }.filter { songs[$0] == nil }
+        if !rest.isEmpty {
+            let catalog = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: rest)
+            for song in (try? await catalog.response().items) ?? [] { songs[song.id] = song }
         }
         return ids.compactMap { songs[MusicItemID($0)].map(TrackItem.init(song:)) }
     }

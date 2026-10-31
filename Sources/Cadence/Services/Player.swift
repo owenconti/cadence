@@ -159,26 +159,70 @@ final class Player {
 
     func toggleShuffle() { setShuffle(!isShuffled) }
 
-    /// Turning shuffle on shuffles what's after the current song; turning it
-    /// off puts the queue back in its own order, carrying on from this song.
+    /// Turning shuffle on shuffles the songs after this one; turning it off
+    /// puts them back in the queue's own order. The playing song is never
+    /// touched, so playback carries on uninterrupted.
     func setShuffle(_ on: Bool) {
         guard on != isShuffled else { return }
         isShuffled = on
-        guard let index, let current else { return }
+        guard let index else { return }
+        let upcoming = Array(queue[(index + 1)...])
         if on {
             unshuffled = queue
-            if index + 1 < queue.count {
-                queue.replaceSubrange((index + 1)..., with: queue[(index + 1)...].shuffled())
+            reorderUpcoming(upcoming.shuffled())
+        } else {
+            // The songs still to come, in their own order.
+            var left = Dictionary(upcoming.map { ($0.id, 1) }, uniquingKeysWith: +)
+            var ordered = (unshuffled ?? queue).filter { track in
+                guard let n = left[track.id], n > 0 else { return false }
+                left[track.id] = n - 1
+                return true
             }
-        } else if let original = unshuffled, let at = original.firstIndex(of: current) {
-            queue = original
-            self.index = at
+            ordered += upcoming.filter { (left[$0.id] ?? 0) > 0 }
             unshuffled = nil
+            reorderUpcoming(ordered)
         }
-        if backend == .musicKit {
-            let list = queue, at = self.index ?? index, pos = position, playing = isPlaying
-            live { try await self.startLiveQueue(list, at: at, from: pos, autoplay: playing) }
+    }
+
+    /// Replaces the songs after the current one, and moves Apple Music's own
+    /// queue entries to match without restarting what's playing.
+    private func reorderUpcoming(_ upcoming: [TrackItem]) {
+        guard let index else { return }
+        let before = Array(queue[(index + 1)...])
+        queue.replaceSubrange((index + 1)..., with: upcoming)
+        guard backend == .musicKit else { return }
+
+        let player = ApplicationMusicPlayer.shared
+        var entries = player.queue.entries
+        guard let current = player.queue.currentEntry,
+              let at = entries.firstIndex(where: { $0.id == current.id }) else { return }
+        let next = entries.index(after: at)
+        let liveUpcoming = Array(entries[next...])
+        guard liveUpcoming.count == before.count else {
+            Self.log.error("Apple Music has \(liveUpcoming.count, privacy: .public) songs up next, we have \(before.count, privacy: .public); rebuilding its queue")
+            let list = queue, pos = position, playing = isPlaying
+            live { try await self.startLiveQueue(list, at: index, from: pos, autoplay: playing) }
+            return
         }
+        // Each of our songs keeps its own Apple Music entry, now in the new order.
+        var pool: [String: [MusicPlayer.Queue.Entry]] = [:]
+        for (track, entry) in zip(before, liveUpcoming) { pool[track.id, default: []].append(entry) }
+        let reordered = upcoming.compactMap { track -> MusicPlayer.Queue.Entry? in
+            guard var list = pool[track.id], !list.isEmpty else { return nil }
+            let entry = list.removeFirst()
+            pool[track.id] = list
+            return entry
+        }
+        entries.replaceSubrange(next..., with: reordered)
+        player.queue.entries = entries
+    }
+
+    /// Swaps in fresher copies of queued songs (same IDs), e.g. with working
+    /// artwork after a restore. Order and playback are unchanged.
+    func refresh(_ tracks: [TrackItem]) {
+        let fresh = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        queue = queue.map { fresh[$0.id] ?? $0 }
+        unshuffled = unshuffled?.map { fresh[$0.id] ?? $0 }
     }
 
     func stop() {
