@@ -137,7 +137,7 @@ struct CollectionDetailView: View {
                     }
                     meta(all)
                     HStack(spacing: 10) {
-                        Button { model.play(shown) } label: { Label("Play", systemImage: "play.fill") }
+                        Button { model.play(shown, shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
                             .buttonStyle(PillButtonStyle())
                         Button { model.play(shown, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
                             .buttonStyle(PillButtonStyle(prominent: false))

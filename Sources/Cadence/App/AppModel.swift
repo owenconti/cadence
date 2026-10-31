@@ -255,7 +255,10 @@ final class AppModel {
               let start = saved.tracks.firstIndex(where: { $0.id == saved.position.trackID }) else { return }
         let playing = keepPlaying && saved.position.isPlaying
         let elapsed = playing ? Date().timeIntervalSince(saved.position.savedAt) : 0
-        player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing)
+        let byID = Dictionary(saved.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let unshuffled = saved.position.unshuffledIDs?.compactMap { byID[$0] }
+        player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing,
+                      shuffled: saved.position.shuffled ?? false, unshuffled: unshuffled)
     }
 
     func refreshPlaylists() async {
@@ -291,11 +294,11 @@ final class AppModel {
 
     // MARK: Playback helpers
 
-    func play(_ tracks: [TrackItem], startAt index: Int = 0, shuffled: Bool = false) {
+    func play(_ tracks: [TrackItem], startAt index: Int = 0, shuffled: Bool? = nil) {
         player.play(tracks, startAt: index, shuffled: shuffled)
     }
 
-    func play(_ item: ShelfItem, shuffled: Bool = false) async {
+    func play(_ item: ShelfItem, shuffled: Bool? = false) async {
         let tracks: [TrackItem]? = switch item {
         case .album(let album): try? await provider.tracks(in: album)
         case .playlist(let playlist): try? await provider.tracks(in: playlist)

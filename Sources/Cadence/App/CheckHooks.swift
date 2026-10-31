@@ -9,6 +9,7 @@ import notify
 /// - `play`: plays the first demo playlist from its third song, 48 s in.
 /// - `restart`: chooses Restart app.
 /// - `quit`: quits normally, as ⌘Q would.
+/// - `shuffle`: toggles shuffle mode.
 /// - `open-largest`: opens the biggest playlist from Discover and records the
 ///   longest main-thread stall during the page transition (`stallMs`) and over
 ///   the next 2 s (`stallMsOverall`).
@@ -51,6 +52,7 @@ enum CheckHooks {
         }
         listen("restart") { model.restartApp() }
         listen("quit") { NSApp.terminate(nil) }
+        listen("shuffle") { model.player.toggleShuffle() }
         listen("open-largest") {
             guard let largest = model.playlists.max(by: { ($0.trackCount ?? 0) < ($1.trackCount ?? 0) }) else { return }
             model.select(.discover)
@@ -80,6 +82,8 @@ enum CheckHooks {
             "position": model.player.position,
             "playing": model.player.isPlaying,
             "queue": model.player.queue.count,
+            "shuffled": model.player.isShuffled,
+            "upNext": model.player.upNext.prefix(5).map(\.title).joined(separator: " / "),
             "updateReady": model.update.isReady,
             "stallMs": stallMs,
             "stallMsOverall": stallMsOverall,

@@ -43,13 +43,28 @@ python3 -c "import sys; sys.exit(0 if $after >= $position else 1)" || fail "posi
 cp "$OUT/window.png" "$OUT/3-restarted.png"
 echo "ok   restarted (pid $(state pid)); '$track' resumed at ${after%.*}s"
 
+inorder=$(state upNext)
+post shuffle; sleep 1
+[[ "$(state shuffled)" == True ]] || fail "shuffle didn't turn on"
+[[ "$(state track)" == "$track" ]] || fail "turning shuffle on changed the current song"
+[[ "$(state upNext)" != "$inorder" ]] || fail "shuffle didn't change what's up next"
+cp "$OUT/window.png" "$OUT/4-shuffled.png"
+echo "ok   shuffle on; '$track' still playing"
+
 post quit; sleep 2
 pgrep -f "$APP/Contents/MacOS/Cadence" >/dev/null && fail "app didn't quit"
 open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
 [[ "$(state track)" == "$track" ]] || fail "after quitting and reopening, got '$(state track)' instead of '$track'"
 [[ "$(state playing)" == False ]] || fail "reopened app started playing by itself"
-cp "$OUT/window.png" "$OUT/4-reopened.png"
-echo "ok   quit and reopened; '$track' is back, paused at $(state position | cut -d. -f1)s"
+[[ "$(state shuffled)" == True ]] || fail "shuffle wasn't remembered"
+cp "$OUT/window.png" "$OUT/5-reopened.png"
+echo "ok   quit and reopened; '$track' is back, paused at $(state position | cut -d. -f1)s, still shuffled"
+
+post shuffle; sleep 1
+[[ "$(state shuffled)" == False ]] || fail "shuffle didn't turn off"
+[[ "$(state track)" == "$track" ]] || fail "turning shuffle off changed the current song"
+[[ "$(state upNext)" == "$inorder" ]] || fail "turning shuffle off didn't restore the order: $(state upNext)"
+echo "ok   shuffle off; the original order is back"
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 echo "PASS"

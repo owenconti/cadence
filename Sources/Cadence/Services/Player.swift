@@ -15,6 +15,10 @@ final class Player {
     private(set) var index: Int?
     private(set) var isPlaying = false
     private(set) var position: TimeInterval = 0
+    /// Shuffle mode: songs after the current one play in random order.
+    private(set) var isShuffled = false
+    /// The queue's own order, to return to when shuffle is turned off.
+    @ObservationIgnored private(set) var unshuffled: [TrackItem]?
     var lastError: String?
 
     @ObservationIgnored private var ticker: Task<Void, Never>?
@@ -43,13 +47,25 @@ final class Player {
 
     // MARK: Commands
 
-    func play(_ tracks: [TrackItem], startAt start: Int = 0, shuffled: Bool = false) {
+    /// Plays `tracks` from `start`. `shuffled` turns shuffle mode on or off;
+    /// nil keeps the current mode (picking a song while shuffled plays it
+    /// first, then the rest shuffled).
+    func play(_ tracks: [TrackItem], startAt start: Int = 0, shuffled: Bool? = nil) {
         guard !tracks.isEmpty else { return }
         var list = tracks
         var startIndex = min(max(start, 0), tracks.count - 1)
-        if shuffled {
-            list.shuffle()
+        isShuffled = shuffled ?? isShuffled
+        if isShuffled {
+            unshuffled = tracks
+            if shuffled == true {
+                list.shuffle()
+            } else {
+                let first = list.remove(at: startIndex)
+                list = [first] + list.shuffled()
+            }
             startIndex = 0
+        } else {
+            unshuffled = nil
         }
         queue = list
         index = startIndex
@@ -59,8 +75,11 @@ final class Player {
     }
 
     /// Picks up a queue carried over from before a restart.
-    func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool) {
+    func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool,
+                shuffled: Bool = false, unshuffled: [TrackItem]? = nil) {
         guard tracks.indices.contains(start) else { return }
+        isShuffled = shuffled
+        self.unshuffled = shuffled ? unshuffled : nil
         queue = tracks
         index = start
         self.position = min(max(position, 0), tracks[start].duration)
@@ -123,6 +142,7 @@ final class Player {
         // Mirrors Apple Music's queue exactly (no de-duplicating), so positions
         // in the two stay aligned for syncing the current song.
         queue.insert(track, at: index + 1)
+        if let current, let at = unshuffled?.firstIndex(of: current) { unshuffled?.insert(track, at: at + 1) }
         if backend == .musicKit, let song = track.song {
             live { try await ApplicationMusicPlayer.shared.queue.insert(song, position: .afterCurrentEntry) }
         }
@@ -131,21 +151,33 @@ final class Player {
     func addToQueue(_ track: TrackItem) {
         guard index != nil else { play([track]); return }
         queue.append(track)
+        unshuffled?.append(track)
         if backend == .musicKit, let song = track.song {
             live { try await ApplicationMusicPlayer.shared.queue.insert(song, position: .tail) }
         }
     }
 
-    func shuffleUpcoming() {
-        guard let index, index + 1 < queue.count else { return }
-        let rest = queue[(index + 1)...].shuffled()
-        queue.replaceSubrange((index + 1)..., with: rest)
-        if backend == .musicKit {
-            let list = queue, pos = position
-            live {
-                try await self.startLiveQueue(list, at: index)
-                ApplicationMusicPlayer.shared.playbackTime = pos
+    func toggleShuffle() { setShuffle(!isShuffled) }
+
+    /// Turning shuffle on shuffles what's after the current song; turning it
+    /// off puts the queue back in its own order, carrying on from this song.
+    func setShuffle(_ on: Bool) {
+        guard on != isShuffled else { return }
+        isShuffled = on
+        guard let index, let current else { return }
+        if on {
+            unshuffled = queue
+            if index + 1 < queue.count {
+                queue.replaceSubrange((index + 1)..., with: queue[(index + 1)...].shuffled())
             }
+        } else if let original = unshuffled, let at = original.firstIndex(of: current) {
+            queue = original
+            self.index = at
+            unshuffled = nil
+        }
+        if backend == .musicKit {
+            let list = queue, at = self.index ?? index, pos = position, playing = isPlaying
+            live { try await self.startLiveQueue(list, at: at, from: pos, autoplay: playing) }
         }
     }
 

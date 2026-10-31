@@ -60,9 +60,15 @@ struct TransportControls: View {
         let mainSize: CGFloat = large ? 64 : 50
 
         HStack(spacing: large ? 22 : 10) {
-            Button(action: player.shuffleUpcoming) { Image(systemName: "shuffle") }
-                .buttonStyle(IconButtonStyle(size: 34))
-                .help("Shuffle what's up next")
+            Button(action: player.toggleShuffle) { Image(systemName: "shuffle") }
+                .buttonStyle(IconButtonStyle(size: 34, active: player.isShuffled))
+                .overlay(alignment: .bottom) {
+                    if player.isShuffled {
+                        Circle().fill(Theme.accent).frame(width: 4, height: 4).offset(y: 3)
+                    }
+                }
+                .help(player.isShuffled ? "Shuffle is on" : "Shuffle is off")
+                .accessibilityValue(player.isShuffled ? "On" : "Off")
             Spacer(minLength: 0)
             Button(action: player.previous) { Image(systemName: "backward.fill") }
                 .buttonStyle(IconButtonStyle(size: large ? 46 : 40))

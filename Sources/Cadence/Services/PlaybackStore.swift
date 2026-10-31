@@ -19,6 +19,9 @@ final class PlaybackStore {
         var trackID: String
         var position: TimeInterval
         var isPlaying: Bool
+        var shuffled: Bool? = false
+        /// IDs in the queue's own order while shuffled.
+        var unshuffledIDs: [String]?
         var savedAt = Date()
     }
 
@@ -51,9 +54,12 @@ final class PlaybackStore {
                 Self.log.error("couldn't save the queue: \(error.localizedDescription, privacy: .public)")
             }
         }
-        let position = Position(live: player.backend == .musicKit, trackID: current.id, position: player.position, isPlaying: player.isPlaying)
+        let position = Position(live: player.backend == .musicKit, trackID: current.id, position: player.position,
+                                isPlaying: player.isPlaying, shuffled: player.isShuffled,
+                                unshuffledIDs: player.unshuffled?.map(\.id))
         let last = savedPosition
         guard force || last == nil || last!.trackID != position.trackID || last!.isPlaying != position.isPlaying
+                || last!.shuffled != position.shuffled || last!.unshuffledIDs != position.unshuffledIDs
                 || abs(last!.position - position.position) >= 3 else { return }
         if let data = try? JSONEncoder().encode(position), (try? data.write(to: positionFile, options: .atomic)) != nil {
             savedPosition = position

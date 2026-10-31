@@ -64,7 +64,7 @@ struct DiscoverView: View {
         if !feed.trending.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "Trending now", subtitle: "What everyone's playing this week") {
-                    Button("Play all") { model.play(feed.trending) }
+                    Button("Play all") { model.play(feed.trending, shuffled: false) }
                         .buttonStyle(PillButtonStyle(prominent: false))
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)], spacing: 4) {

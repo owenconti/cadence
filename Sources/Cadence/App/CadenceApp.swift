@@ -47,6 +47,9 @@ struct CadenceApp: App {
                     .keyboardShortcut(.rightArrow)
                 Button("Previous Track") { model.player.previous() }
                     .keyboardShortcut(.leftArrow)
+                Divider()
+                Toggle("Shuffle", isOn: Binding(get: { model.player.isShuffled }, set: { model.player.setShuffle($0) }))
+                    .keyboardShortcut("s")
             }
         }
     }

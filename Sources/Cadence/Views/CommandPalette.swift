@@ -191,7 +191,8 @@ struct CommandPalette: View {
                 .init(id: "cmd:toggle", group: "Playback", title: player.isPlaying ? "Pause" : "Resume", symbol: player.isPlaying ? "pause.fill" : "play.fill", hint: "Space", keywords: "play") { player.toggle() },
                 .init(id: "cmd:next", group: "Playback", title: "Next track", symbol: "forward.fill", hint: "⌘→", keywords: "skip") { player.next() },
                 .init(id: "cmd:previous", group: "Playback", title: "Previous track", symbol: "backward.fill", hint: "⌘←", keywords: "back restart song") { player.previous() },
-                .init(id: "cmd:shuffle", group: "Playback", title: "Shuffle up next", symbol: "shuffle", keywords: "queue random") { player.shuffleUpcoming() },
+                .init(id: "cmd:shuffle", group: "Playback", title: player.isShuffled ? "Turn shuffle off" : "Turn shuffle on",
+                      symbol: "shuffle", hint: "⌘S", keywords: "shuffle random order mode") { player.toggleShuffle() },
             ]
         }
 

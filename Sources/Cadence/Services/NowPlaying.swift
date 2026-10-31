@@ -9,7 +9,7 @@ import SwiftUI
 final class NowPlaying {
     private let player: Player
     private var timer: Timer?
-    private var published: (id: String?, playing: Bool, position: TimeInterval, at: Date)?
+    private var published: (id: String?, playing: Bool, shuffled: Bool, position: TimeInterval, at: Date)?
     private var artwork: (id: String, image: MPMediaItemArtwork?)?
 
     init(player: Player) {
@@ -20,6 +20,15 @@ final class NowPlaying {
         handle(commands.togglePlayPauseCommand) { $0.toggle() }
         handle(commands.nextTrackCommand) { $0.next() }
         handle(commands.previousTrackCommand) { $0.previous() }
+        commands.changeShuffleModeCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
+            return MainActor.assumeIsolated {
+                guard let self, self.player.current != nil else { return .noActionableNowPlayingItem }
+                self.player.setShuffle(event.shuffleType != .off)
+                self.publish()
+                return .success
+            }
+        }
         commands.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             return MainActor.assumeIsolated {
@@ -51,14 +60,16 @@ final class NowPlaying {
         let id = player.current?.id
         guard let last = published else { return publish() }
         let expected = last.position + (last.playing ? Date().timeIntervalSince(last.at) : 0)
-        if id != last.id || player.isPlaying != last.playing || abs(player.position - expected) > 1.5 {
+        if id != last.id || player.isPlaying != last.playing || player.isShuffled != last.shuffled
+            || abs(player.position - expected) > 1.5 {
             publish()
         }
     }
 
     private func publish() {
         let center = MPNowPlayingInfoCenter.default()
-        published = (player.current?.id, player.isPlaying, player.position, Date())
+        published = (player.current?.id, player.isPlaying, player.isShuffled, player.position, Date())
+        MPRemoteCommandCenter.shared().changeShuffleModeCommand.currentShuffleType = player.isShuffled ? .items : .off
         guard let track = player.current else {
             center.nowPlayingInfo = nil
             center.playbackState = .stopped
