@@ -22,11 +22,6 @@ struct RootView: View {
             }
         }
         .ignoresSafeArea()
-        // No animations anywhere: every change shows instantly (see AGENTS.md).
-        .transaction { transaction in
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
         .preferredColorScheme(.dark)
         .frame(minWidth: 1080, minHeight: 680)
     }

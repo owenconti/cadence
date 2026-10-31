@@ -19,6 +19,6 @@ Never quit, relaunch or open the user's app (`/Applications/Cadence.app`), and d
 
 The command palette (⌘K) lists everything the app can do. Its entries are `commands` in `Sources/Cadence/Views/CommandPalette.swift`. Whenever you add, rename, remove or change a user-facing action (a button, a menu item, a keyboard shortcut), update its palette entry in the same change: title, `hint` (its shortcut), `keywords`, and the condition it shows under (only when it would work). Keep the menus in `CadenceApp.swift` consistent with it.
 
-## No animations
+## No screen transitions
 
-The user doesn't want animations or transitions anywhere: pages, overlays, hover and press states, and status changes all appear instantly. Don't add `withAnimation`, `.animation`, `.transition`, `.contentTransition`, symbol effects, repeating or `TimelineView` motion, or scale/offset effects. `RootView` also switches off every animation in its `.transaction`; keep that. The only motion allowed is the system's progress spinner while something loads.
+The user doesn't want transitions between screens: switching between the splash, the connect screen and the app, moving between pages, and opening or closing the command palette all happen instantly, with no cross-fades or slides. Animation within a screen is welcome: loading states, hover and press effects, interactive controls, and status changes such as the Update ready pill.

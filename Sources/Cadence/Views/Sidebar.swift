@@ -47,10 +47,12 @@ struct Sidebar: View {
                 UpdateReady()
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             SourceBadge()
         }
         .frame(width: 232)
+        .animation(.smooth(duration: 0.3), value: model.update.isReady)
         .background(Theme.panel)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.hairline).frame(width: 1) }
     }

@@ -77,6 +77,7 @@ struct MediaCard: View {
                     if let play, hovering {
                         PlayFab(size: 38, action: play)
                             .padding(10)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
                 }
             VStack(alignment: circular ? .center : .leading, spacing: 2) {
@@ -94,7 +95,7 @@ struct MediaCard: View {
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(hovering ? Theme.card : .clear))
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(.snappy(duration: 0.18)) { hovering = h } }
     }
 }
 
@@ -116,6 +117,7 @@ struct CardRow<Item: Identifiable, Card: View>: View {
 
 struct LoadingRows: View {
     var count = 6
+    @State private var pulse = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -123,6 +125,9 @@ struct LoadingRows: View {
                 RoundedRectangle(cornerRadius: 10).fill(Theme.card).frame(height: 44)
             }
         }
+        .opacity(pulse ? 0.5 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(), value: pulse)
+        .onAppear { pulse = true }
     }
 }
 

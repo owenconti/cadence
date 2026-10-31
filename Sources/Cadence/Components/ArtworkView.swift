@@ -107,19 +107,23 @@ struct GeneratedArt: View {
     }
 }
 
-/// Static level bars marking the track that's playing; low when paused.
+/// Animated bars shown next to the track that's playing.
 struct EqualizerBars: View {
     var active: Bool
     var color: Color = Theme.accent
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach([7.0, 12.0, 9.0], id: \.self) { height in
-                Capsule()
-                    .fill(color)
-                    .frame(width: 3, height: active ? height : 4)
+        TimelineView(.animation(paused: !active)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(0..<3, id: \.self) { i in
+                    let phase = sin(t * (5 + Double(i) * 1.7) + Double(i))
+                    Capsule()
+                        .fill(color)
+                        .frame(width: 3, height: active ? 5 + 7 * (phase + 1) / 2 : 4)
+                }
             }
+            .frame(height: 14, alignment: .bottom)
         }
-        .frame(height: 14, alignment: .bottom)
     }
 }

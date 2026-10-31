@@ -39,6 +39,7 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.tertiary)
 
                 AccessNotice()
+                    .animation(.smooth(duration: 0.3), value: model.access)
 
                 Button("or explore with the demo library", action: model.startDemo)
                     .buttonStyle(.plain)
@@ -126,6 +127,7 @@ private struct AccessNotice: View {
         .frame(width: 420)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.hairline))
+        .transition(.opacity.combined(with: .offset(y: -6)))
     }
 }
 

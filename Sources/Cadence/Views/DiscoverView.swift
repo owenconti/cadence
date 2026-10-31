@@ -108,12 +108,13 @@ private struct QuickTile: View {
             if hovering {
                 PlayFab(size: 32) { Task { await model.play(item) } }
                     .padding(.trailing, 12)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
         }
         .background(hovering ? Theme.cardHover : Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(.snappy(duration: 0.18)) { hovering = h } }
         .onTapGesture { model.open(item) }
     }
 }

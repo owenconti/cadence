@@ -36,7 +36,7 @@ struct Scrubber: View {
                             dragFraction = nil
                         }
                 )
-                .onHover { hovering = $0 }
+                .onHover { h in withAnimation(.snappy(duration: 0.15)) { hovering = h } }
             }
             .frame(height: 14)
 
@@ -70,6 +70,7 @@ struct TransportControls: View {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: mainSize * 0.36, weight: .bold))
                     .foregroundStyle(.black)
+                    .contentTransition(.symbolEffect(.replace))
                     .frame(width: mainSize, height: mainSize)
                     .background(Circle().fill(.white))
                     .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
@@ -102,6 +103,7 @@ struct AmbientBackground: View {
             RadialGradient(colors: [palette.primary.opacity(intensity), .clear], center: .topTrailing, startRadius: 0, endRadius: 900)
             RadialGradient(colors: [palette.secondary.opacity(intensity * 0.9), .clear], center: .bottomLeading, startRadius: 0, endRadius: 800)
         }
+        .animation(.easeInOut(duration: 1.4), value: model.player.current?.id)
         .ignoresSafeArea()
     }
 }
