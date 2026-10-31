@@ -12,6 +12,11 @@ import notify
 /// - `shuffle`: toggles shuffle mode.
 /// - `open-album`: opens the playing song's album.
 /// - `play-last-playlist`: plays the last playlist in library order.
+/// - `palette`, `palette-close`: opens or closes ⌘K.
+/// - `sidebar-hide`, `sidebar-show`: ⌘B. `now-playing-on`, `now-playing-off`: ⇧⌘F.
+///   Set rather than toggle, so a resent notification is harmless.
+/// - `focus-filter`: opens Playlists and puts the cursor in its filter field.
+/// - `type-glass`: types "glass" into the window, as the keyboard would.
 /// - `open-largest`: opens the biggest playlist from Discover and records the
 ///   longest main-thread stall during the page transition (`stallMs`) and over
 ///   the next 2 s (`stallMsOverall`).
@@ -55,6 +60,32 @@ enum CheckHooks {
         listen("restart") { model.restartApp() }
         listen("quit") { NSApp.terminate(nil) }
         listen("shuffle") { model.player.toggleShuffle() }
+        listen("palette") { model.palette.present() }
+        listen("palette-close") { model.palette.dismiss() }
+        listen("sidebar-hide") { if !model.sidebarHidden { model.toggleSidebar() } }
+        listen("sidebar-show") { if model.sidebarHidden { model.toggleSidebar() } }
+        listen("focus-filter") {
+            model.select(.playlists)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                guard let window = NSApp.appWindow, let field = editableFields(in: window.contentView).first else { return }
+                window.makeFirstResponder(field)
+            }
+        }
+        listen("type-glass") {
+            guard let window = NSApp.appWindow else { return }
+            for c in "glass" {
+                let chars = String(c)
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    if let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil, characters: chars,
+                                                    charactersIgnoringModifiers: chars, isARepeat: false, keyCode: 0) {
+                        window.sendEvent(event)
+                    }
+                }
+            }
+        }
+        listen("now-playing-on") { if !model.nowPlayingMode { model.toggleNowPlayingMode() } }
+        listen("now-playing-off") { if model.nowPlayingMode { model.toggleNowPlayingMode() } }
         listen("play-last-playlist") {
             Task {
                 guard let playlist = model.playlists.last,
@@ -108,6 +139,11 @@ enum CheckHooks {
             "source": model.player.source.map { "\($0.label): \($0.title)" } ?? NSNull(),
             "upNext": model.player.upNext.prefix(5).map(\.title).joined(separator: " / "),
             "updateReady": model.update.isReady,
+            "paletteOpen": model.palette.isPresented,
+            "paletteQuery": model.palette.query,
+            "filterText": editableFields(in: NSApp.appWindow?.contentView).filter { !($0 is FocusingTextField) }.map(\.stringValue).joined(),
+            "sidebarHidden": model.sidebarHidden,
+            "nowPlayingMode": model.nowPlayingMode,
             "stallMs": stallMs,
             "stallMsOverall": stallMsOverall,
             "windows": NSApp.windows.map { "\(type(of: $0)) visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height))" },
@@ -119,5 +155,12 @@ enum CheckHooks {
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("window.png"))
+    }
+
+    /// Text fields the user can type in, front to back.
+    private static func editableFields(in view: NSView?) -> [NSTextField] {
+        guard let view else { return [] }
+        let own = (view as? NSTextField).flatMap { $0.isEditable ? [$0] : nil } ?? []
+        return own + view.subviews.flatMap { editableFields(in: $0) }
     }
 }

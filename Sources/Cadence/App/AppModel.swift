@@ -35,8 +35,23 @@ final class AppModel {
     @ObservationIgnored private var nowPlaying: NowPlaying?
 
     var section: SidebarSection = .discover
+    /// ⌘B. Kept across launches.
+    var sidebarHidden = UserDefaults.standard.bool(forKey: AppModel.sidebarHiddenKey) {
+        didSet { UserDefaults.standard.set(sidebarHidden, forKey: Self.sidebarHiddenKey) }
+    }
+    /// Panel widths, dragged by their inner edges. Kept across launches.
+    var sidebarWidth = AppModel.savedWidth(AppModel.sidebarWidthKey, default: 232) {
+        didSet { UserDefaults.standard.set(Double(sidebarWidth), forKey: Self.sidebarWidthKey) }
+    }
+    var nowPanelWidth = AppModel.savedWidth(AppModel.nowPanelWidthKey, default: 340) {
+        didSet { UserDefaults.standard.set(Double(nowPanelWidth), forKey: Self.nowPanelWidthKey) }
+    }
+    /// The full-window Now Playing view (⌘⇧F); only while something plays.
+    var nowPlayingMode = false
     private(set) var stack: [Route] = []
     var playlists: [PlaylistItem] = []
+    /// False until the current source's playlists have arrived.
+    private(set) var playlistsLoaded = false
     /// Song counts by playlist ID. Apple Music doesn't include them, so
     /// they're counted in the background and kept for the next launch.
     private(set) var playlistSizes = UserDefaults.standard.dictionary(forKey: AppModel.sizesKey) as? [String: Int] ?? [:]
@@ -59,6 +74,14 @@ final class AppModel {
     @ObservationIgnored private var preloading = false
     private static let sourceKey = "cadence.source"
     private static let sizesKey = "cadence.playlistSizes"
+    private static let sidebarHiddenKey = "cadence.sidebarHidden"
+    private static let sidebarWidthKey = "cadence.sidebarWidth"
+    private static let nowPanelWidthKey = "cadence.nowPanelWidth"
+
+    private static func savedWidth(_ key: String, default value: CGFloat) -> CGFloat {
+        let saved = UserDefaults.standard.double(forKey: key)
+        return saved > 0 ? saved : value
+    }
     private static let playedKey = "cadence.playlistPlayedAt"
     private static let log = Logger(subsystem: "com.owenconti.cadence", category: "app")
 
@@ -218,6 +241,10 @@ final class AppModel {
         if let section = handoff.flatMap({ SidebarSection(rawValue: $0.section) }) { self.section = section }
         Task { await restorePlayback(keepPlaying: handoff?.keepPlaying ?? false) }
 
+        if playlists == nil {
+            self.playlists = []
+            playlistsLoaded = false
+        }
         preloading = true
         Task {
             async let feed = try? await provider.discover()
@@ -226,6 +253,7 @@ final class AppModel {
             } else {
                 self.playlists = (try? await provider.playlists()) ?? []
             }
+            self.playlistsLoaded = true
             if self.discoverFeed == nil { self.discoverFeed = await feed }
             self.preloading = false
             await self.loadPlaylistOrder()
@@ -292,7 +320,10 @@ final class AppModel {
     }
 
     func refreshPlaylists() async {
-        playlists = (try? await provider.playlists()) ?? []
+        if let fresh = try? await provider.playlists() {
+            playlists = fresh
+            playlistsLoaded = true
+        }
         await loadPlaylistOrder()
     }
 
@@ -360,14 +391,26 @@ final class AppModel {
         UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
     }
 
+    // MARK: Layout
+
+    func toggleSidebar() {
+        sidebarHidden.toggle()
+    }
+
+    func toggleNowPlayingMode() {
+        nowPlayingMode = !nowPlayingMode && player.current != nil
+    }
+
     // MARK: Navigation
 
     func select(_ section: SidebarSection) {
         self.section = section
         stack = []
+        nowPlayingMode = false
     }
 
     func navigate(_ route: Route) {
+        nowPlayingMode = false
         guard route != self.route else { return }
         stack.append(route)
     }
@@ -455,6 +498,10 @@ final class AppModel {
             case 53: palette.dismiss(); return true
             default: return false
             }
+        }
+        if nowPlayingMode, event.keyCode == 53 {
+            nowPlayingMode = false
+            return true
         }
         let editingText = NSApp.keyWindow?.firstResponder is NSTextView
         if event.keyCode == 49, modifiers.isEmpty, !editingText, phase == .ready {

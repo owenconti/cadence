@@ -3,7 +3,6 @@ import SwiftUI
 /// ⌘K: search the catalog and jump anywhere, all from the keyboard.
 struct CommandPalette: View {
     @Environment(AppModel.self) private var model
-    @FocusState private var focused: Bool
     @State private var searching = false
 
     var body: some View {
@@ -19,10 +18,7 @@ struct CommandPalette: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.secondary)
-                    TextField("Songs, artists, playlists, or a command…", text: $palette.query)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 18))
-                        .focused($focused)
+                    PaletteSearchField(text: $palette.query, placeholder: "Songs, artists, playlists, or a command…")
                     if searching { ProgressView().controlSize(.small) }
                 }
                 .padding(.horizontal, 20)
@@ -49,7 +45,6 @@ struct CommandPalette: View {
             .shadow(color: .black.opacity(0.5), radius: 50, y: 24)
             .padding(.top, 110)
         }
-        .onAppear { focused = true }
         .task(id: palette.query) { await rebuild() }
     }
 
@@ -201,6 +196,15 @@ struct CommandPalette: View {
             ]
         }
 
+        list.append(.init(id: "view:sidebar", group: "View", title: model.sidebarHidden ? "Show sidebar" : "Hide sidebar",
+                          symbol: "sidebar.left", hint: "⌘B", keywords: "toggle sidebar panel collapse") { model.toggleSidebar() })
+        if player.current != nil {
+            list.append(.init(id: "view:nowplaying", group: "View", title: model.nowPlayingMode ? "Leave Now Playing" : "Now Playing",
+                              subtitle: model.nowPlayingMode ? nil : "Fill the window with what's playing",
+                              symbol: "arrow.up.left.and.arrow.down.right", hint: "⇧⌘F",
+                              keywords: "full player fullscreen mode big artwork") { model.toggleNowPlayingMode() })
+        }
+
         list.append(.init(id: "lib:reload", group: "Library", title: "Reload library", symbol: "arrow.triangle.2.circlepath", keywords: "refresh playlists") {
             model.reloadLibrary()
         })
@@ -246,5 +250,59 @@ private struct PaletteRow: View {
         .frame(height: 46)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? Color.white.opacity(0.1) : .clear))
         .contentShape(Rectangle())
+    }
+}
+
+/// The palette's search field. An AppKit field that takes keyboard focus as
+/// soon as it's in the window, so typing goes straight into it; SwiftUI's
+/// focus request on appear doesn't reliably land on macOS.
+private struct PaletteSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeNSView(context: Context) -> FocusingTextField {
+        let field = FocusingTextField()
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 18)
+        field.textColor = .white
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
+            .font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.white.withAlphaComponent(0.36),
+        ])
+        field.cell?.isScrollable = true
+        field.cell?.wraps = false
+        field.delegate = context.coordinator
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: FocusingTextField, context: Context) {
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ note: Notification) {
+            guard let field = note.object as? NSTextField else { return }
+            text.wrappedValue = field.stringValue
+        }
+    }
+}
+
+final class FocusingTextField: NSTextField {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.makeFirstResponder(self)
+        // Again once SwiftUI has finished placing it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window === window, !(window.firstResponder is NSTextView) else { return }
+            window.makeFirstResponder(self)
+        }
     }
 }

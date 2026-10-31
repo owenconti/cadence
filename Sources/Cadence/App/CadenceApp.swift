@@ -28,6 +28,14 @@ struct CadenceApp: App {
                 Button(model.update.isReady ? "Restart to Update" : "Restart Cadence") { model.restartApp() }
                     .keyboardShortcut("r", modifiers: [.command, .option])
             }
+            CommandGroup(replacing: .sidebar) {
+                Button(model.sidebarHidden ? "Show Sidebar" : "Hide Sidebar") { model.toggleSidebar() }
+                    .keyboardShortcut("b")
+                Button(model.nowPlayingMode ? "Leave Now Playing" : "Now Playing") { model.toggleNowPlayingMode() }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .disabled(model.player.current == nil)
+                Divider()
+            }
             CommandMenu("Go") {
                 Button("Search…") { model.palette.present() }
                     .keyboardShortcut("k")

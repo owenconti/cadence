@@ -47,6 +47,32 @@ enum SnapshotTour {
 
             model.select(.discover)
             await shot("9-upnext")
+
+            // Loading states, each next to what replaces it: nothing should
+            // move when the data arrives.
+            DemoProvider.extraLatency = .seconds(3)
+            if let first = playlists?.first { model.navigate(.playlist(first)) }
+            await shot("10-playlist-loading", wait: 0.6)
+            await shot("10-playlist-loaded", wait: 3.4)
+            model.select(.artists)
+            await shot("11-artists-loading", wait: 0.6)
+            await shot("11-artists-loaded", wait: 3.4)
+            if let artist = try? await model.provider.artists().first { model.navigate(.artist(artist)) }
+            await shot("12-artist-loading", wait: 0.6)
+            await shot("12-artist-loaded", wait: 3.4)
+            model.select(.discover)
+            model.reloadLibrary()
+            await shot("13-discover-loading", wait: 0.6)
+            await shot("13-discover-loaded", wait: 3.4)
+            model.select(.playlists)
+            await shot("14-playlists", wait: 0.6)
+            DemoProvider.extraLatency = .zero
+            model.toggleNowPlayingMode()
+            await shot("15-now-playing")
+            model.toggleNowPlayingMode()
+            model.toggleSidebar()
+            await shot("16-sidebar-hidden")
+            model.toggleSidebar()
             NSApp.terminate(nil)
         }
     }

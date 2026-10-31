@@ -13,6 +13,8 @@ export BUNDLE_ID=com.owenconti.cadence.check
 OUT="$PWD/build/check/out"
 post() { notifyutil -p "com.owenconti.cadence.check.$1"; }
 state() { post snapshot; sleep 1; python3 -c "import json,sys; print(json.load(open('$OUT/state.json'))['$1'])"; }
+# Posts a hook until a state key has the value (notifications can be dropped).
+until_state() { for _ in 1 2 3; do post "$1"; sleep 0.6; [[ "$(state "$2")" == "$3" ]] && return 0; done; return 1; }
 fail() { echo "FAIL: $*" >&2; pkill -f "$APP/Contents/MacOS/Cadence" || true; exit 1; }
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
@@ -86,6 +88,23 @@ last=$(state source | sed 's/^Playlist: //')
 recent=$(python3 -c "import json; print(json.load(open('$OUT/state.json'))['playlistsRecent'][0])")
 [[ "$recent" == "$last" ]] || fail "Recent doesn't put the playlist just played ('$last') first: '$recent'"
 echo "ok   playlists sort A–Z, by size, and by recent ('$last' first after playing it)"
+
+post focus-filter; sleep 1
+post palette; sleep 0.6
+post type-glass; sleep 0.6
+[[ "$(state paletteQuery)" == glass && -z "$(state filterText)" ]] || fail "typing after opening ⌘K didn't reach its search field (query '$(state paletteQuery)', page filter '$(state filterText)')"
+post palette-close; sleep 0.3
+echo "ok   ⌘K opens with its search field focused: typing lands in it, even from a filter field"
+
+until_state sidebar-hide sidebarHidden True || fail "⌘B didn't hide the sidebar"
+cp "$OUT/window.png" "$OUT/6-sidebar-hidden.png"
+until_state sidebar-show sidebarHidden False || fail "⌘B didn't bring the sidebar back"
+echo "ok   ⌘B hides and shows the sidebar"
+
+until_state now-playing-on nowPlayingMode True || fail "⇧⌘F didn't open Now Playing"
+cp "$OUT/window.png" "$OUT/7-now-playing.png"
+until_state now-playing-off nowPlayingMode False || fail "⇧⌘F didn't leave Now Playing"
+echo "ok   ⇧⌘F opens and leaves Now Playing"
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 

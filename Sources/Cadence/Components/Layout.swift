@@ -25,7 +25,8 @@ struct PageScroll<Content: View>: View {
                 .buttonStyle(IconButtonStyle(size: 30))
                 .background(Circle().fill(.ultraThinMaterial))
                 .help("Back (⌘[)")
-                .padding(.leading, 28)
+                // Clear of the window buttons when there's no sidebar.
+                .padding(.leading, model.sidebarHidden ? 84 : 28)
                 .padding(.top, 12)
             }
         }
@@ -61,6 +62,8 @@ extension SectionHeader where Accessory == EmptyView {
 struct MediaCard: View {
     let title: String
     let subtitle: String
+    /// Still loading: the subtitle shows as a placeholder of its size.
+    var subtitlePending = false
     let artwork: ArtworkSource
     var circular = false
     var width: CGFloat? = 164
@@ -87,6 +90,7 @@ struct MediaCard: View {
                 Text(subtitle)
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.secondary)
+                    .redacted(reason: subtitlePending ? .placeholder : [])
             }
             .lineLimit(1)
         }
@@ -115,19 +119,38 @@ struct CardRow<Item: Identifiable, Card: View>: View {
     }
 }
 
+/// Track rows loading: plain shapes laid out exactly like `TrackRow` (same
+/// 54 pt height, gaps and columns), cheap enough not to slow a page opening.
 struct LoadingRows: View {
     var count = 6
-    @State private var pulse = false
+    var showArtwork = true
+    var showAlbum = true
 
     var body: some View {
-        VStack(spacing: 10) {
-            ForEach(0..<count, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 10).fill(Theme.card).frame(height: 44)
+        VStack(spacing: 2) {
+            ForEach(0..<count, id: \.self) { i in
+                HStack(spacing: 14) {
+                    bar(10, 10).frame(width: 24)
+                    if showArtwork { RoundedRectangle(cornerRadius: 5).fill(Theme.card).frame(width: 38, height: 38) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        bar([150, 240, 110][i % 3], 11)
+                        bar(90, 9)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if showAlbum { bar(100, 10).frame(maxWidth: .infinity, alignment: .leading) }
+                    Color.clear.frame(width: 24)
+                    bar(30, 10).frame(width: 40, alignment: .trailing)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 54)
             }
         }
-        .opacity(pulse ? 0.5 : 1)
-        .animation(.easeInOut(duration: 0.9).repeatForever(), value: pulse)
-        .onAppear { pulse = true }
+        .modifier(Pulse())
+        .accessibilityHidden(true)
+    }
+
+    private func bar(_ width: CGFloat, _ height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3).fill(Theme.card).frame(width: width, height: height)
     }
 }
 

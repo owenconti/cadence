@@ -15,14 +15,22 @@ struct NowPanel: View {
                 }
             }
         }
-        .frame(width: 340)
+        .frame(maxWidth: .infinity)
         .background(Theme.panel)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.hairline).frame(width: 1) }
     }
 
     private func playing(_ track: TrackItem, compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            PlayingFrom()
+            HStack(alignment: .top) {
+                PlayingFrom()
+                Spacer(minLength: 8)
+                Button(action: model.toggleNowPlayingMode) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(IconButtonStyle(size: 28))
+                .help("Now Playing (⇧⌘F)")
+            }
 
             if compact {
                 HStack(spacing: 14) {
@@ -72,7 +80,7 @@ struct NowPanel: View {
 }
 
 /// "Playing from playlist" and its name, which opens it.
-private struct PlayingFrom: View {
+struct PlayingFrom: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -109,7 +117,7 @@ private struct PlayingFrom: View {
     }
 }
 
-private struct QueueHeader: View {
+struct QueueHeader: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -124,7 +132,7 @@ private struct QueueHeader: View {
     }
 }
 
-private struct UpNextList: View {
+struct UpNextList: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {

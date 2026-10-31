@@ -7,11 +7,15 @@ struct PlaylistsView: View {
 
     var body: some View {
         let playlists = visible
+        // Until the playlists (or, for Largest, their song counts) are in,
+        // cards of the same size stand in so nothing moves when they arrive.
+        let waiting = !model.playlistsLoaded || (sort == .size && model.playlists.contains { model.size(of: $0) == nil })
         PageScroll {
             HStack(alignment: .lastTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Playlists").font(.display(34, .heavy))
                     Text("\(model.playlists.count) playlists").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                        .redacted(reason: model.playlistsLoaded ? [] : .placeholder)
                 }
                 Spacer()
                 Picker("Sort", selection: $sort) {
@@ -23,27 +27,36 @@ struct PlaylistsView: View {
                 FilterField(prompt: "Filter playlists", text: $filter)
             }
 
-            if playlists.isEmpty {
+            if waiting {
+                grid(model.playlistsLoaded ? Placeholder.playlists(playlists.count) : Placeholder.playlists(12)).skeleton()
+            } else if playlists.isEmpty {
                 EmptyNote(symbol: "music.note.list", title: filter.isEmpty ? "No playlists yet" : "Nothing matches “\(filter)”")
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
-                    ForEach(playlists) { playlist in
-                        MediaCard(
-                            title: playlist.name,
-                            subtitle: model.size(of: playlist).map { "\($0) songs" } ?? (playlist.curator ?? "Playlist"),
-                            artwork: playlist.artwork,
-                            width: nil
-                        ) {
-                            model.navigate(.playlist(playlist))
-                        } play: {
-                            Task { await model.play(.playlist(playlist)) }
-                        }
-                    }
-                }
-                .padding(.horizontal, -10)
+                grid(playlists)
             }
         }
         .task { await model.refreshPlaylists() }
+    }
+
+    private func grid(_ playlists: [PlaylistItem]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
+            ForEach(playlists) { playlist in
+                let size = model.size(of: playlist)
+                MediaCard(
+                    title: playlist.name,
+                    // Apple Music playlists say how many songs once counted.
+                    subtitle: size.map { "\($0) songs" } ?? (model.provider.isLive ? "000 songs" : playlist.curator ?? "Playlist"),
+                    subtitlePending: size == nil && model.provider.isLive,
+                    artwork: playlist.artwork,
+                    width: nil
+                ) {
+                    model.navigate(.playlist(playlist))
+                } play: {
+                    Task { await model.play(.playlist(playlist)) }
+                }
+            }
+        }
+        .padding(.horizontal, -10)
     }
 
     private var visible: [PlaylistItem] {
@@ -147,7 +160,7 @@ struct CollectionDetailView: View {
                 TrackListHeader(showArtwork: showArtwork, showAlbum: showArtwork)
                 switch tracks {
                 case .loading:
-                    LoadingRows(count: 8).padding(.top, 8)
+                    LoadingRows(count: 12, showArtwork: showArtwork, showAlbum: showArtwork)
                 case .failed(let message):
                     EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load tracks", message: message)
                 case .loaded:
@@ -177,6 +190,8 @@ struct CollectionDetailView: View {
             }
             if !tracks.isEmpty {
                 Text("· \(tracks.count) songs · \(tracks.reduce(0) { $0 + $1.duration }.longForm)")
+            } else if case .loading = self.tracks {
+                Text("· 00 songs · 0 hr 00 min").skeleton()
             }
         }
         .font(.system(size: 13))

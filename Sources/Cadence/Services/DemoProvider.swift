@@ -8,9 +8,15 @@ final class DemoProvider: MusicProvider {
     let isLive = false
 
     private let library = DemoLibrary()
+    /// Added to every load, so the snapshot tour can catch loading states.
+    static var extraLatency: Duration = .zero
+
+    private func pause(_ ms: Int) async throws {
+        try await Task.sleep(for: .milliseconds(ms) + Self.extraLatency)
+    }
 
     func discover() async throws -> DiscoverFeed {
-        try await Task.sleep(for: .milliseconds(250))
+        try await pause(250)
         let lib = library
         let byYear = lib.albums.sorted { ($0.year ?? "") > ($1.year ?? "") }
         return DiscoverFeed(
@@ -28,22 +34,28 @@ final class DemoProvider: MusicProvider {
         )
     }
 
-    func playlists() async throws -> [PlaylistItem] { library.playlists }
+    func playlists() async throws -> [PlaylistItem] {
+        try await pause(0)
+        return library.playlists
+    }
 
     func tracks(in playlist: PlaylistItem) async throws -> [TrackItem] {
-        try await Task.sleep(for: .milliseconds(120))
+        try await pause(120)
         return library.playlistTracks[playlist.id] ?? []
     }
 
     func tracks(in album: AlbumItem) async throws -> [TrackItem] {
-        try await Task.sleep(for: .milliseconds(120))
+        try await pause(120)
         return library.tracks.filter { $0.albumID == album.id }
     }
 
-    func artists() async throws -> [ArtistItem] { library.artists }
+    func artists() async throws -> [ArtistItem] {
+        try await pause(0)
+        return library.artists
+    }
 
     func detail(for artist: ArtistItem) async throws -> ArtistDetail {
-        try await Task.sleep(for: .milliseconds(150))
+        try await pause(150)
         guard let artist = library.artists.first(where: { $0.id == artist.id || $0.name == artist.name }) else {
             return ArtistDetail(artist: artist)
         }

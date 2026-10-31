@@ -16,6 +16,7 @@ struct ArtistsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Artists").font(.display(34, .heavy))
                     Text("\(all.count) in your library").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                        .redacted(reason: all.isEmpty && isLoading ? .placeholder : [])
                 }
                 Spacer()
                 FilterField(prompt: "Filter by name or genre", text: $filter)
@@ -23,23 +24,33 @@ struct ArtistsView: View {
 
             switch artists {
             case .loading:
-                LoadingRows()
+                grid((0..<18).map(Placeholder.artist)).skeleton()
             case .failed(let message):
                 EmptyNote(symbol: "person.crop.circle.badge.exclamationmark", title: "Couldn't load artists", message: message)
             case .loaded:
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 6)], alignment: .leading, spacing: 14) {
-                    ForEach(shown) { artist in
-                        MediaCard(title: artist.name, subtitle: artist.genre ?? "Artist", artwork: artist.artwork, circular: true, width: nil) {
-                            model.navigate(.artist(artist))
-                        }
-                    }
-                }
-                .padding(.horizontal, -10)
+                grid(shown)
             }
         }
         .task {
             do { artists = .loaded(try await model.provider.artists()) } catch { artists = .failed(error.localizedDescription) }
         }
+    }
+}
+
+extension ArtistsView {
+    private var isLoading: Bool {
+        if case .loading = artists { true } else { false }
+    }
+
+    private func grid(_ artists: [ArtistItem]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 6)], alignment: .leading, spacing: 14) {
+            ForEach(artists) { artist in
+                MediaCard(title: artist.name, subtitle: artist.genre ?? "Artist", artwork: artist.artwork, circular: true, width: nil) {
+                    model.navigate(.artist(artist))
+                }
+            }
+        }
+        .padding(.horizontal, -10)
     }
 }
 
@@ -54,11 +65,11 @@ struct ArtistDetailView: View {
         let shownArtist = loaded?.artist ?? artist
 
         PageScroll {
-            hero(shownArtist, songs: loaded?.topSongs ?? [])
+            hero(shownArtist, songs: loaded?.topSongs ?? [], loading: { if case .loading = detail { true } else { false } }())
 
             switch detail {
             case .loading:
-                LoadingRows(count: 5)
+                Group { content(Placeholder.artistDetail(shownArtist)) }.skeleton()
             case .failed(let message):
                 EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load this artist", message: message)
             case .loaded(let detail):
@@ -70,7 +81,7 @@ struct ArtistDetailView: View {
         }
     }
 
-    private func hero(_ artist: ArtistItem, songs: [TrackItem]) -> some View {
+    private func hero(_ artist: ArtistItem, songs: [TrackItem], loading: Bool) -> some View {
         let palette = artist.artwork.palette
         return HStack(alignment: .center, spacing: 30) {
             ArtworkView(source: artist.artwork, circular: true, resolution: 500)
@@ -84,6 +95,8 @@ struct ArtistDetailView: View {
                     .minimumScaleFactor(0.5)
                 if let genre = artist.genre {
                     Text(genre).font(.system(size: 14, weight: .medium)).foregroundStyle(.white.opacity(0.75))
+                } else if loading {
+                    Text("Genre").font(.system(size: 14, weight: .medium)).skeleton()
                 }
                 HStack(spacing: 10) {
                     Button { model.play(songs, shuffled: false, from: .artist(artist)) } label: { Label("Play", systemImage: "play.fill") }

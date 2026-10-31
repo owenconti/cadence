@@ -19,7 +19,7 @@ struct DiscoverView: View {
             } else if let loadError {
                 EmptyNote(symbol: "wifi.exclamationmark", title: "Couldn't load Discover", message: loadError)
             } else {
-                LoadingRows()
+                Group { sections(Placeholder.discover(subtitles: !model.provider.isLive)) }.skeleton()
             }
         }
         .task {

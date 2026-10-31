@@ -34,8 +34,13 @@ struct Sidebar: View {
 
             ScrollView {
                 VStack(spacing: 2) {
-                    ForEach(model.playlists.prefix(14)) { playlist in
-                        PinnedRow(playlist: playlist)
+                    if model.playlistsLoaded {
+                        ForEach(model.playlists.prefix(14)) { playlist in
+                            PinnedRow(playlist: playlist)
+                        }
+                    } else {
+                        ForEach(Placeholder.playlists(8)) { PinnedRow(playlist: $0) }
+                            .skeleton()
                     }
                 }
                 .padding(.horizontal, 10)
@@ -51,7 +56,7 @@ struct Sidebar: View {
             }
             SourceBadge()
         }
-        .frame(width: 232)
+        .frame(maxWidth: .infinity)
         .animation(.smooth(duration: 0.3), value: model.update.isReady)
         .background(Theme.panel)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.hairline).frame(width: 1) }
