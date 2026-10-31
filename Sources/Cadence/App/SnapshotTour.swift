@@ -40,6 +40,7 @@ enum SnapshotTour {
             await shot("6-playlists")
 
             model.palette.present()
+            await shot("7-palette-commands", wait: 1.2)
             model.palette.query = "glass"
             await shot("8-palette", wait: 1.6)
             model.palette.dismiss()

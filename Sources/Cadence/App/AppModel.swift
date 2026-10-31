@@ -24,6 +24,7 @@ final class AppModel {
     private(set) var providerGeneration = 0
     let player = Player()
     let palette = PaletteModel()
+    let update = AppUpdate()
 
     var section: SidebarSection = .discover
     private(set) var stack: [Route] = []
@@ -33,12 +34,30 @@ final class AppModel {
     var canPlayCatalog: Bool?
 
     @ObservationIgnored private var keyMonitor: Any?
+    /// Playback and place carried over from the copy that restarted into this one.
+    @ObservationIgnored private var handoff: Handoff?
     private static let sourceKey = "cadence.source"
+
 
     var route: Route { stack.last ?? section.route }
 
     init() {
         installKeyMonitor()
+        #if DEBUG
+        CheckHooks.install(self)
+        #endif
+        guard RunMode.current != .snapshots else { return }
+        handoff = Handoff.take()
+        if let frame = handoff?.windowFrame {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NSApp.windows.first { $0.isVisible }?.setFrame(frame, display: true)
+            }
+        }
+        // Check copies stay on the demo library, away from the user's music.
+        if RunMode.current == .check {
+            startDemo()
+            return
+        }
         // Apple Music always uses the Apple ID signed into macOS, so once
         // access has been granted there's nothing to ask: connect straight away.
         if MusicAuthorization.currentStatus == .authorized {
@@ -52,7 +71,7 @@ final class AppModel {
 
     func startDemo() {
         use(DemoProvider(), backend: .demo)
-        UserDefaults.standard.set("demo", forKey: Self.sourceKey)
+        if !RunMode.isThrowaway { UserDefaults.standard.set("demo", forKey: Self.sourceKey) }
     }
 
     func connectAppleMusic() async {
@@ -109,6 +128,41 @@ final class AppModel {
         section = .discover
         withAnimation(.smooth(duration: 0.5)) { phase = .ready }
         Task { await refreshPlaylists() }
+        if let handoff {
+            self.handoff = nil
+            Task { await restore(handoff) }
+        }
+    }
+
+    /// Reloads every page from the library, keeping where you are.
+    func reloadLibrary() {
+        providerGeneration += 1
+        Task { await refreshPlaylists() }
+    }
+
+    // MARK: Restart
+
+    /// Relaunches into the build on disk (newer, if `update.isReady`), carrying
+    /// the queue and position across so music resumes after a brief pause.
+    func restartApp() {
+        update.relaunch(saving: Handoff(
+            section: section.rawValue,
+            trackIDs: player.queue.map(\.id),
+            index: player.index,
+            position: player.position,
+            isPlaying: player.isPlaying,
+            windowFrame: NSApp.windows.first { $0.isVisible }?.frame
+        ))
+    }
+
+    private func restore(_ handoff: Handoff) async {
+        if let section = SidebarSection(rawValue: handoff.section) { select(section) }
+        guard let index = handoff.index, handoff.trackIDs.indices.contains(index),
+              let tracks = try? await provider.tracks(withIDs: handoff.trackIDs) else { return }
+        // Songs that vanished from the library shift the queue; find ours again.
+        let current = handoff.trackIDs[index]
+        guard let start = tracks.firstIndex(where: { $0.id == current }) else { return }
+        player.resume(tracks, at: start, position: handoff.resumePosition, playing: handoff.isPlaying)
     }
 
     func refreshPlaylists() async {

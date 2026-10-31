@@ -56,6 +56,11 @@ final class DemoProvider: MusicProvider {
         )
     }
 
+    func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
+        let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.compactMap { byID[$0] }
+    }
+
     func search(_ term: String) async throws -> SearchResults {
         let q = term.lowercased()
         func hit(_ s: String) -> Bool { s.lowercased().contains(q) }

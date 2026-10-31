@@ -5,30 +5,26 @@ struct DiscoverView: View {
     @State private var feed: Loadable<DiscoverFeed> = .loading
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            PageScroll {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(greeting).font(.display(34, .heavy))
-                    Text("Fresh picks tuned to what you've been playing.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Theme.secondary)
-                }
-
-                switch feed {
-                case .loading:
-                    LoadingRows()
-                case .failed(let message):
-                    EmptyNote(symbol: "wifi.exclamationmark", title: "Couldn't load Discover", message: message)
-                case .loaded(let feed):
-                    sections(feed)
-                }
+        PageScroll {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(greeting).font(.display(34, .heavy))
+                Text("Fresh picks tuned to what you've been playing.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.secondary)
             }
-            .task {
-                do { feed = .loaded(try await model.provider.discover()) } catch { feed = .failed(error.localizedDescription) }
+
+            switch feed {
+            case .loading:
+                LoadingRows()
+            case .failed(let message):
+                EmptyNote(symbol: "wifi.exclamationmark", title: "Couldn't load Discover", message: message)
+            case .loaded(let feed):
+                sections(feed)
             }
         }
-        .hotReloadable()
+        .task {
+            do { feed = .loaded(try await model.provider.discover()) } catch { feed = .failed(error.localizedDescription) }
+        }
     }
 
     private var greeting: String {
@@ -99,29 +95,25 @@ private struct QuickTile: View {
     @State private var hovering = false
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            HStack(spacing: 12) {
-                ArtworkView(source: item.artwork, cornerRadius: 0, resolution: 140)
-                    .frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).font(.system(size: 13, weight: .semibold))
-                    Text(item.subtitle).font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
-                }
-                .lineLimit(1)
-                Spacer(minLength: 0)
-                if hovering {
-                    PlayFab(size: 32) { Task { await model.play(item) } }
-                        .padding(.trailing, 12)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
-                }
+        HStack(spacing: 12) {
+            ArtworkView(source: item.artwork, cornerRadius: 0, resolution: 140)
+                .frame(width: 56, height: 56)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(.system(size: 13, weight: .semibold))
+                Text(item.subtitle).font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
             }
-            .background(hovering ? Theme.cardHover : Theme.card)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .contentShape(Rectangle())
-            .onHover { h in withAnimation(.snappy(duration: 0.18)) { hovering = h } }
-            .onTapGesture { model.open(item) }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+            if hovering {
+                PlayFab(size: 32) { Task { await model.play(item) } }
+                    .padding(.trailing, 12)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
         }
-        .hotReloadable()
+        .background(hovering ? Theme.cardHover : Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+        .onHover { h in withAnimation(.snappy(duration: 0.18)) { hovering = h } }
+        .onTapGesture { model.open(item) }
     }
 }

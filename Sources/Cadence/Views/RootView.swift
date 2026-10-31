@@ -4,29 +4,25 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            ZStack {
-                AmbientBackground()
+        ZStack {
+            AmbientBackground()
 
-                switch model.phase {
-                case .onboarding:
-                    OnboardingView().transition(.opacity)
-                case .ready:
-                    MainShell().transition(.opacity)
-                }
-
-                if model.palette.isPresented {
-                    CommandPalette()
-                        .transition(.opacity)
-                        .zIndex(2)
-                }
+            switch model.phase {
+            case .onboarding:
+                OnboardingView().transition(.opacity)
+            case .ready:
+                MainShell().transition(.opacity)
             }
-            .ignoresSafeArea()
-            .preferredColorScheme(.dark)
-            .frame(minWidth: 1080, minHeight: 680)
+
+            if model.palette.isPresented {
+                CommandPalette()
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
         }
-        .hotReloadable()
+        .ignoresSafeArea()
+        .preferredColorScheme(.dark)
+        .frame(minWidth: 1080, minHeight: 680)
     }
 }
 
@@ -34,15 +30,11 @@ struct MainShell: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            HStack(spacing: 0) {
-                Sidebar()
-                ContentArea()
-                NowPanel()
-            }
+        HStack(spacing: 0) {
+            Sidebar()
+            ContentArea()
+            NowPanel()
         }
-        .hotReloadable()
     }
 }
 
@@ -50,19 +42,15 @@ struct ContentArea: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            let route = model.route
-            ZStack {
-                page(for: route)
-                    .id(route)
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
-            }
-            .animation(.snappy(duration: 0.28), value: route)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .id(model.providerGeneration)
+        let route = model.route
+        ZStack {
+            page(for: route)
+                .id(route)
+                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
         }
-        .hotReloadable()
+        .animation(.snappy(duration: 0.28), value: route)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .id(model.providerGeneration)
     }
 
     @ViewBuilder

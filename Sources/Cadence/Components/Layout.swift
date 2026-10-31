@@ -7,32 +7,28 @@ struct PageScroll<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 40) {
-                    content
-                }
-                .padding(.horizontal, 36)
-                .padding(.top, Theme.titlebarInset + 18)
-                .padding(.bottom, 48)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 40) {
+                content
             }
-            .scrollIndicators(.never)
-            .overlay(alignment: .topLeading) {
-                if !model.stack.isEmpty {
-                    Button(action: model.back) {
-                        Image(systemName: "chevron.left")
-                    }
-                    .buttonStyle(IconButtonStyle(size: 30))
-                    .background(Circle().fill(.ultraThinMaterial))
-                    .help("Back (⌘[)")
-                    .padding(.leading, 28)
-                    .padding(.top, 12)
+            .padding(.horizontal, 36)
+            .padding(.top, Theme.titlebarInset + 18)
+            .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.never)
+        .overlay(alignment: .topLeading) {
+            if !model.stack.isEmpty {
+                Button(action: model.back) {
+                    Image(systemName: "chevron.left")
                 }
+                .buttonStyle(IconButtonStyle(size: 30))
+                .background(Circle().fill(.ultraThinMaterial))
+                .help("Back (⌘[)")
+                .padding(.leading, 28)
+                .padding(.top, 12)
             }
         }
-        .hotReloadable()
     }
 }
 
@@ -42,20 +38,16 @@ struct SectionHeader<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            HStack(alignment: .lastTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.display(21))
-                    if let subtitle {
-                        Text(subtitle).font(.system(size: 13)).foregroundStyle(Theme.secondary)
-                    }
+        HStack(alignment: .lastTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.display(21))
+                if let subtitle {
+                    Text(subtitle).font(.system(size: 13)).foregroundStyle(Theme.secondary)
                 }
-                Spacer()
-                accessory
             }
+            Spacer()
+            accessory
         }
-        .hotReloadable()
     }
 }
 
@@ -78,36 +70,32 @@ struct MediaCard: View {
     @State private var hovering = false
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            VStack(alignment: circular ? .center : .leading, spacing: 10) {
-                ArtworkView(source: artwork, cornerRadius: 10, circular: circular, resolution: 360)
-                    .shadow(color: .black.opacity(hovering ? 0.45 : 0.25), radius: hovering ? 16 : 8, y: hovering ? 10 : 4)
-                    .overlay(alignment: .bottomTrailing) {
-                        if let play, hovering {
-                            PlayFab(size: 38, action: play)
-                                .padding(10)
-                                .transition(.scale(scale: 0.6).combined(with: .opacity))
-                        }
+        VStack(alignment: circular ? .center : .leading, spacing: 10) {
+            ArtworkView(source: artwork, cornerRadius: 10, circular: circular, resolution: 360)
+                .shadow(color: .black.opacity(hovering ? 0.45 : 0.25), radius: hovering ? 16 : 8, y: hovering ? 10 : 4)
+                .overlay(alignment: .bottomTrailing) {
+                    if let play, hovering {
+                        PlayFab(size: 38, action: play)
+                            .padding(10)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
-                VStack(alignment: circular ? .center : .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.text)
-                    Text(subtitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.secondary)
                 }
-                .lineLimit(1)
+            VStack(alignment: circular ? .center : .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
             }
-            .padding(10)
-            .frame(width: width)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(hovering ? Theme.card : .clear))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: open)
-            .onHover { h in withAnimation(.snappy(duration: 0.18)) { hovering = h } }
+            .lineLimit(1)
         }
-        .hotReloadable()
+        .padding(10)
+        .frame(width: width)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(hovering ? Theme.card : .clear))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
+        .onHover { h in withAnimation(.snappy(duration: 0.18)) { hovering = h } }
     }
 }
 
@@ -116,18 +104,14 @@ struct CardRow<Item: Identifiable, Card: View>: View {
     @ViewBuilder var card: (Item) -> Card
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 6) {
-                    ForEach(items) { card($0) }
-                }
-                .padding(.horizontal, 26)
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: 6) {
+                ForEach(items) { card($0) }
             }
-            .scrollIndicators(.never)
-            .padding(.horizontal, -36)
+            .padding(.horizontal, 26)
         }
-        .hotReloadable()
+        .scrollIndicators(.never)
+        .padding(.horizontal, -36)
     }
 }
 
@@ -136,18 +120,14 @@ struct LoadingRows: View {
     @State private var pulse = false
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            VStack(spacing: 10) {
-                ForEach(0..<count, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 10).fill(Theme.card).frame(height: 44)
-                }
+        VStack(spacing: 10) {
+            ForEach(0..<count, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 10).fill(Theme.card).frame(height: 44)
             }
-            .opacity(pulse ? 0.5 : 1)
-            .animation(.easeInOut(duration: 0.9).repeatForever(), value: pulse)
-            .onAppear { pulse = true }
         }
-        .hotReloadable()
+        .opacity(pulse ? 0.5 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(), value: pulse)
+        .onAppear { pulse = true }
     }
 }
 
@@ -157,23 +137,19 @@ struct EmptyNote: View {
     var message: String?
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            VStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(Theme.tertiary)
-                Text(title).font(.system(size: 14, weight: .semibold))
-                if let message {
-                    Text(message)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.secondary)
-                        .multilineTextAlignment(.center)
-                }
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 26, weight: .medium))
+                .foregroundStyle(Theme.tertiary)
+            Text(title).font(.system(size: 14, weight: .semibold))
+            if let message {
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.secondary)
+                    .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity)
-            .padding(32)
         }
-        .hotReloadable()
+        .frame(maxWidth: .infinity)
+        .padding(32)
     }
 }

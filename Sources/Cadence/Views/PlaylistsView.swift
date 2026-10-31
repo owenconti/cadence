@@ -12,48 +12,44 @@ struct PlaylistsView: View {
     }
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            let playlists = visible
-            PageScroll {
-                HStack(alignment: .lastTextBaseline) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Playlists").font(.display(34, .heavy))
-                        Text("\(model.playlists.count) playlists").font(.system(size: 13)).foregroundStyle(Theme.secondary)
-                    }
-                    Spacer()
-                    Picker("Sort", selection: $sort) {
-                        ForEach(Sort.allCases, id: \.self) { Text($0.rawValue) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 210)
-                    FilterField(prompt: "Filter playlists", text: $filter)
+        let playlists = visible
+        PageScroll {
+            HStack(alignment: .lastTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Playlists").font(.display(34, .heavy))
+                    Text("\(model.playlists.count) playlists").font(.system(size: 13)).foregroundStyle(Theme.secondary)
                 }
+                Spacer()
+                Picker("Sort", selection: $sort) {
+                    ForEach(Sort.allCases, id: \.self) { Text($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 210)
+                FilterField(prompt: "Filter playlists", text: $filter)
+            }
 
-                if playlists.isEmpty {
-                    EmptyNote(symbol: "music.note.list", title: filter.isEmpty ? "No playlists yet" : "Nothing matches “\(filter)”")
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
-                        ForEach(playlists) { playlist in
-                            MediaCard(
-                                title: playlist.name,
-                                subtitle: playlist.trackCount.map { "\($0) songs" } ?? (playlist.curator ?? "Playlist"),
-                                artwork: playlist.artwork,
-                                width: nil
-                            ) {
-                                model.navigate(.playlist(playlist))
-                            } play: {
-                                Task { await model.play(.playlist(playlist)) }
-                            }
+            if playlists.isEmpty {
+                EmptyNote(symbol: "music.note.list", title: filter.isEmpty ? "No playlists yet" : "Nothing matches “\(filter)”")
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
+                    ForEach(playlists) { playlist in
+                        MediaCard(
+                            title: playlist.name,
+                            subtitle: playlist.trackCount.map { "\($0) songs" } ?? (playlist.curator ?? "Playlist"),
+                            artwork: playlist.artwork,
+                            width: nil
+                        ) {
+                            model.navigate(.playlist(playlist))
+                        } play: {
+                            Task { await model.play(.playlist(playlist)) }
                         }
                     }
-                    .padding(.horizontal, -10)
                 }
+                .padding(.horizontal, -10)
             }
-            .task { await model.refreshPlaylists() }
         }
-        .hotReloadable()
+        .task { await model.refreshPlaylists() }
     }
 
     private var visible: [PlaylistItem] {
@@ -71,19 +67,15 @@ struct PlaylistDetailView: View {
     let playlist: PlaylistItem
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            CollectionDetailView(
-                kind: "Playlist",
-                title: playlist.name,
-                byline: playlist.curator,
-                summary: playlist.summary,
-                artwork: playlist.artwork,
-                showArtwork: true,
-                load: { try await model.provider.tracks(in: playlist) }
-            )
-        }
-        .hotReloadable()
+        CollectionDetailView(
+            kind: "Playlist",
+            title: playlist.name,
+            byline: playlist.curator,
+            summary: playlist.summary,
+            artwork: playlist.artwork,
+            showArtwork: true,
+            load: { try await model.provider.tracks(in: playlist) }
+        )
     }
 }
 
@@ -92,20 +84,16 @@ struct AlbumDetailView: View {
     let album: AlbumItem
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            CollectionDetailView(
-                kind: ["Album", album.year].compactMap { $0 }.joined(separator: " · "),
-                title: album.title,
-                byline: album.artistName,
-                onByline: { model.openArtist(id: album.artistID, name: album.artistName) },
-                summary: nil,
-                artwork: album.artwork,
-                showArtwork: false,
-                load: { try await model.provider.tracks(in: album) }
-            )
-        }
-        .hotReloadable()
+        CollectionDetailView(
+            kind: ["Album", album.year].compactMap { $0 }.joined(separator: " · "),
+            title: album.title,
+            byline: album.artistName,
+            onByline: { model.openArtist(id: album.artistID, name: album.artistName) },
+            summary: nil,
+            artwork: album.artwork,
+            showArtwork: false,
+            load: { try await model.provider.tracks(in: album) }
+        )
     }
 }
 
@@ -125,67 +113,63 @@ struct CollectionDetailView: View {
     @State private var filter = ""
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            let all: [TrackItem] = if case .loaded(let t) = tracks { t } else { [] }
-            let shown = filter.isEmpty ? all : all.filter {
-                $0.title.localizedCaseInsensitiveContains(filter)
-                    || $0.artistName.localizedCaseInsensitiveContains(filter)
-                    || $0.albumTitle.localizedCaseInsensitiveContains(filter)
-            }
+        let all: [TrackItem] = if case .loaded(let t) = tracks { t } else { [] }
+        let shown = filter.isEmpty ? all : all.filter {
+            $0.title.localizedCaseInsensitiveContains(filter)
+                || $0.artistName.localizedCaseInsensitiveContains(filter)
+                || $0.albumTitle.localizedCaseInsensitiveContains(filter)
+        }
 
-            PageScroll {
-                HStack(alignment: .bottom, spacing: 30) {
-                    ArtworkView(source: artwork, cornerRadius: 16, resolution: 600)
-                        .frame(width: 230, height: 230)
-                        .shadow(color: artwork.palette.primary.opacity(0.35), radius: 40, y: 18)
+        PageScroll {
+            HStack(alignment: .bottom, spacing: 30) {
+                ArtworkView(source: artwork, cornerRadius: 16, resolution: 600)
+                    .frame(width: 230, height: 230)
+                    .shadow(color: artwork.palette.primary.opacity(0.35), radius: 40, y: 18)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(kind.uppercased()).eyebrow()
-                        Text(title)
-                            .font(.display(46, .heavy))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.5)
-                        if let summary {
-                            Text(summary).font(.system(size: 14)).foregroundStyle(Theme.secondary).lineLimit(2)
-                        }
-                        meta(all)
-                        HStack(spacing: 10) {
-                            Button { model.play(shown) } label: { Label("Play", systemImage: "play.fill") }
-                                .buttonStyle(PillButtonStyle())
-                            Button { model.play(shown, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
-                                .buttonStyle(PillButtonStyle(prominent: false))
-                        }
-                        .disabled(all.isEmpty)
-                        .padding(.top, 6)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(kind.uppercased()).eyebrow()
+                    Text(title)
+                        .font(.display(46, .heavy))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.5)
+                    if let summary {
+                        Text(summary).font(.system(size: 14)).foregroundStyle(Theme.secondary).lineLimit(2)
                     }
-                }
-
-                VStack(spacing: 2) {
-                    FilterField(prompt: "Find in \(kind.lowercased().split(separator: " ").first ?? "list")", text: $filter)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.bottom, 12)
-                    TrackListHeader(showArtwork: showArtwork, showAlbum: showArtwork)
-                    switch tracks {
-                    case .loading:
-                        LoadingRows(count: 8).padding(.top, 8)
-                    case .failed(let message):
-                        EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load tracks", message: message)
-                    case .loaded:
-                        if shown.isEmpty {
-                            EmptyNote(symbol: "magnifyingglass", title: all.isEmpty ? "No tracks" : "No matches for “\(filter)”")
-                        }
-                        ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
-                            TrackRow(track: track, number: i + 1, context: shown, showArtwork: showArtwork, showAlbum: showArtwork)
-                        }
+                    meta(all)
+                    HStack(spacing: 10) {
+                        Button { model.play(shown) } label: { Label("Play", systemImage: "play.fill") }
+                            .buttonStyle(PillButtonStyle())
+                        Button { model.play(shown, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                            .buttonStyle(PillButtonStyle(prominent: false))
                     }
+                    .disabled(all.isEmpty)
+                    .padding(.top, 6)
                 }
             }
-            .task {
-                do { tracks = .loaded(try await load()) } catch { tracks = .failed(error.localizedDescription) }
+
+            VStack(spacing: 2) {
+                FilterField(prompt: "Find in \(kind.lowercased().split(separator: " ").first ?? "list")", text: $filter)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.bottom, 12)
+                TrackListHeader(showArtwork: showArtwork, showAlbum: showArtwork)
+                switch tracks {
+                case .loading:
+                    LoadingRows(count: 8).padding(.top, 8)
+                case .failed(let message):
+                    EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load tracks", message: message)
+                case .loaded:
+                    if shown.isEmpty {
+                        EmptyNote(symbol: "magnifyingglass", title: all.isEmpty ? "No tracks" : "No matches for “\(filter)”")
+                    }
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, track in
+                        TrackRow(track: track, number: i + 1, context: shown, showArtwork: showArtwork, showAlbum: showArtwork)
+                    }
+                }
             }
         }
-        .hotReloadable()
+        .task {
+            do { tracks = .loaded(try await load()) } catch { tracks = .failed(error.localizedDescription) }
+        }
     }
 
     private func meta(_ tracks: [TrackItem]) -> some View {

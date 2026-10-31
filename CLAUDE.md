@@ -1,25 +1,20 @@
 # Cadence
 
-Native macOS music app (SwiftUI + MusicKit). See README.md for layout and code map.
+Native macOS music app (SwiftUI + MusicKit). See README.md for the layout and code map.
 
-## Claude runs the app; the user doesn't
+## Claude runs the builds; the user chooses when to reload
 
-The user describes what to build and never runs commands. Claude builds, launches, restarts and verifies everything, and never tells the user to run a command.
+The user describes what to build and never runs commands. Claude builds, checks, commits and rebuilds the app, and never tells the user to run a command. Tasks live in the Makefile (`make` lists them). Run them with the sandbox disabled, because they launch apps and read the signing keychain.
 
-Tasks live in the Makefile (`make` lists them). Run them with the sandbox disabled, because they launch GUI apps and read the signing keychain.
+When a change is done:
 
-- **Start of a session:** run `make status`. If the supervisor isn't running, run `make dev`. It builds, launches `build/Cadence-Dev.app` with hot reload, and keeps a supervisor running in the background.
-- **After editing Swift files:** saved edits hot reload into the running app, and playback keeps going. After each batch of edits, wait a few seconds and read `tail build/dev-watch.log`:
-  - `hot reloaded` means it's live.
-  - `build failed` lists compiler errors. Fix them before reporting back. The previous app keeps running meanwhile.
-  - The supervisor rebuilds and relaunches by itself when files are added or removed, when `Package.swift`, `Support/Info.plist` or the icon changes, or when an edit fails to inject.
-- **Changes the supervisor can't detect.** Run `make restart` after:
-  - adding or removing stored properties (`@State`, model fields, new cases),
-  - changing launch or setup code (`CadenceApp`, `AppDelegate`, `AppModel.init`).
+1. **Check it.** Run `make check`. It plays music on a throwaway debug copy (`build/check/Cadence.app`, demo library), rebuilds that copy in place, confirms "Update ready", restarts it and confirms playback resumed. For visual work, also run `make snapshots` and look at the screenshots in `build/check/snapshots/`. Screen recording isn't available.
+2. **Commit to `main`.** Make one commit per change. There is no remote, so don't push.
+3. **Rebuild the user's app.** Run `make update`. It rebuilds `build/Cadence.app` in place under the running copy. Within about 3 seconds that copy shows "Update ready" in the sidebar, and **Restart app** (⌘K or ⌥⌘R) loads the new build. Before quitting, it saves the queue, current song, position and section; the new copy resumes them after a pause of a second or two.
+4. **Tell the user** what changed and that Restart app (⌘K) is ready.
 
-  A restart stops playback, so batch these together and mention it to the user.
-- **Debugging injection:** `build/dev.log` has the app's stdout and InjectionIII's 💉 messages.
-- **Visual checks:** take a screenshot with the debug snapshot tour (see README). Screen recording isn't available.
-- **Release build:** `make run` builds the signed `build/Cadence.app` and launches it.
+Never quit, relaunch or open the user's app (`build/Cadence.app`), and don't run `make run`; restarting is the user's choice. Check runs use only the throwaway copy under `build/check/`. It listens for `notifyutil -p com.owenconti.cadence.check.<snapshot|play|restart>`, writes `state.json` and `window.png` to its check folder, and keeps its handoff and saved settings apart from the user's.
 
-Hot reload uses InjectionIII (in /Applications) in standalone mode. `scripts/dev.sh` saves `xcodebuild` output as a `\r`-separated `.xcactivitylog`, because that's where InjectionIII looks up compile commands. Every view body starts with `HotReload.observe()` and ends with `.hotReloadable()`. Keep that pattern in new views.
+## Command palette
+
+The command palette (⌘K) lists everything the app can do. Its entries are `commands` in `Sources/Cadence/Views/CommandPalette.swift`. Whenever you add, rename, remove or change a user-facing action (a button, a menu item, a keyboard shortcut), update its palette entry in the same change: title, `hint` (its shortcut), `keywords`, and the condition it shows under (only when it would work). Keep the menus in `CadenceApp.swift` consistent with it.

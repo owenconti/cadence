@@ -9,16 +9,12 @@ struct ArtworkView: View {
     var resolution = 400
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            let shape = circular ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            Color.clear
-                .aspectRatio(1, contentMode: .fit)
-                .overlay { content }
-                .clipShape(shape)
-                .overlay(shape.stroke(Color.white.opacity(0.07), lineWidth: 0.5))
-        }
-        .hotReloadable()
+        let shape = circular ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay { content }
+            .clipShape(shape)
+            .overlay(shape.stroke(Color.white.opacity(0.07), lineWidth: 0.5))
     }
 
     @ViewBuilder
@@ -50,68 +46,64 @@ struct GeneratedArt: View {
     let palette: Palette
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            Canvas { ctx, size in
-                var rng = SeededRandom(seed: seed)
-                let w = min(size.width, size.height)
-                let rect = CGRect(origin: .zero, size: size)
-                ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [palette.primary, palette.secondary]),
-                    startPoint: CGPoint(x: 0, y: 0),
-                    endPoint: CGPoint(x: size.width, y: size.height)
-                ))
+        Canvas { ctx, size in
+            var rng = SeededRandom(seed: seed)
+            let w = min(size.width, size.height)
+            let rect = CGRect(origin: .zero, size: size)
+            ctx.fill(Path(rect), with: .linearGradient(
+                Gradient(colors: [palette.primary, palette.secondary]),
+                startPoint: CGPoint(x: 0, y: 0),
+                endPoint: CGPoint(x: size.width, y: size.height)
+            ))
 
-                switch style % 5 {
-                case 0: // drifting orbs
-                    for _ in 0..<4 {
-                        let r = w * rng.double(in: 0.12...0.42)
-                        let c = CGPoint(x: w * rng.unit(), y: w * rng.unit())
-                        ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
-                                 with: .color(.white.opacity(rng.double(in: 0.06...0.2))))
-                    }
-                case 1: // horizon sun
-                    let r = w * 0.27
-                    let c = CGPoint(x: w * 0.5, y: w * 0.56)
+            switch style % 5 {
+            case 0: // drifting orbs
+                for _ in 0..<4 {
+                    let r = w * rng.double(in: 0.12...0.42)
+                    let c = CGPoint(x: w * rng.unit(), y: w * rng.unit())
                     ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
-                             with: .linearGradient(Gradient(colors: [.white.opacity(0.95), palette.primary.opacity(0.9)]),
-                                                   startPoint: CGPoint(x: c.x, y: c.y - r), endPoint: CGPoint(x: c.x, y: c.y + r)))
-                    for i in 0..<6 {
-                        let y = c.y + CGFloat(i) * w * 0.045
-                        ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: w * 0.012 * CGFloat(i + 1) * 0.5)),
-                                 with: .color(palette.secondary))
-                    }
-                case 2: // concentric rings
-                    let c = CGPoint(x: w * rng.double(in: 0.3...0.7), y: w * rng.double(in: 0.3...0.7))
-                    for i in stride(from: 9, through: 1, by: -1) {
-                        let r = w * 0.09 * CGFloat(i)
-                        ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
-                                   with: .color(.white.opacity(0.05 + 0.02 * Double(10 - i))), lineWidth: w * 0.012)
-                    }
-                case 3: // diagonal bands
-                    var path = Path()
-                    for i in 0..<7 {
-                        let x = w * (CGFloat(i) * 0.3 - 0.6)
-                        path.move(to: CGPoint(x: x, y: size.height))
-                        path.addLine(to: CGPoint(x: x + w * 0.9, y: 0))
-                    }
-                    ctx.stroke(path, with: .color(.white.opacity(0.16)), lineWidth: w * 0.07)
-                default: // soft portrait glow, used for artists
-                    let c = CGPoint(x: w * 0.5, y: w * 0.42)
-                    let r = w * 0.2
-                    ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(.white.opacity(0.28)))
-                    let body = CGRect(x: w * 0.2, y: w * 0.68, width: w * 0.6, height: w * 0.6)
-                    ctx.fill(Path(ellipseIn: body), with: .color(.white.opacity(0.18)))
+                             with: .color(.white.opacity(rng.double(in: 0.06...0.2))))
                 }
-
-                // A thin film of grain-like noise makes flat gradients feel printed.
-                ctx.fill(Path(rect), with: .linearGradient(
-                    Gradient(colors: [.white.opacity(0.08), .clear, .black.opacity(0.18)]),
-                    startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)
-                ))
+            case 1: // horizon sun
+                let r = w * 0.27
+                let c = CGPoint(x: w * 0.5, y: w * 0.56)
+                ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                         with: .linearGradient(Gradient(colors: [.white.opacity(0.95), palette.primary.opacity(0.9)]),
+                                               startPoint: CGPoint(x: c.x, y: c.y - r), endPoint: CGPoint(x: c.x, y: c.y + r)))
+                for i in 0..<6 {
+                    let y = c.y + CGFloat(i) * w * 0.045
+                    ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: w * 0.012 * CGFloat(i + 1) * 0.5)),
+                             with: .color(palette.secondary))
+                }
+            case 2: // concentric rings
+                let c = CGPoint(x: w * rng.double(in: 0.3...0.7), y: w * rng.double(in: 0.3...0.7))
+                for i in stride(from: 9, through: 1, by: -1) {
+                    let r = w * 0.09 * CGFloat(i)
+                    ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)),
+                               with: .color(.white.opacity(0.05 + 0.02 * Double(10 - i))), lineWidth: w * 0.012)
+                }
+            case 3: // diagonal bands
+                var path = Path()
+                for i in 0..<7 {
+                    let x = w * (CGFloat(i) * 0.3 - 0.6)
+                    path.move(to: CGPoint(x: x, y: size.height))
+                    path.addLine(to: CGPoint(x: x + w * 0.9, y: 0))
+                }
+                ctx.stroke(path, with: .color(.white.opacity(0.16)), lineWidth: w * 0.07)
+            default: // soft portrait glow, used for artists
+                let c = CGPoint(x: w * 0.5, y: w * 0.42)
+                let r = w * 0.2
+                ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)), with: .color(.white.opacity(0.28)))
+                let body = CGRect(x: w * 0.2, y: w * 0.68, width: w * 0.6, height: w * 0.6)
+                ctx.fill(Path(ellipseIn: body), with: .color(.white.opacity(0.18)))
             }
+
+            // A thin film of grain-like noise makes flat gradients feel printed.
+            ctx.fill(Path(rect), with: .linearGradient(
+                Gradient(colors: [.white.opacity(0.08), .clear, .black.opacity(0.18)]),
+                startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)
+            ))
         }
-        .hotReloadable()
     }
 }
 
@@ -121,21 +113,17 @@ struct EqualizerBars: View {
     var color: Color = Theme.accent
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            TimelineView(.animation(paused: !active)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                HStack(alignment: .bottom, spacing: 2) {
-                    ForEach(0..<3, id: \.self) { i in
-                        let phase = sin(t * (5 + Double(i) * 1.7) + Double(i))
-                        Capsule()
-                            .fill(color)
-                            .frame(width: 3, height: active ? 5 + 7 * (phase + 1) / 2 : 4)
-                    }
+        TimelineView(.animation(paused: !active)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(0..<3, id: \.self) { i in
+                    let phase = sin(t * (5 + Double(i) * 1.7) + Double(i))
+                    Capsule()
+                        .fill(color)
+                        .frame(width: 3, height: active ? 5 + 7 * (phase + 1) / 2 : 4)
                 }
-                .frame(height: 14, alignment: .bottom)
             }
+            .frame(height: 14, alignment: .bottom)
         }
-        .hotReloadable()
     }
 }

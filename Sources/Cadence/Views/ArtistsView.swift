@@ -6,44 +6,40 @@ struct ArtistsView: View {
     @State private var filter = ""
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            let all: [ArtistItem] = if case .loaded(let a) = artists { a } else { [] }
-            let shown = filter.isEmpty ? all : all.filter {
-                $0.name.localizedCaseInsensitiveContains(filter) || ($0.genre ?? "").localizedCaseInsensitiveContains(filter)
+        let all: [ArtistItem] = if case .loaded(let a) = artists { a } else { [] }
+        let shown = filter.isEmpty ? all : all.filter {
+            $0.name.localizedCaseInsensitiveContains(filter) || ($0.genre ?? "").localizedCaseInsensitiveContains(filter)
+        }
+
+        PageScroll {
+            HStack(alignment: .lastTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Artists").font(.display(34, .heavy))
+                    Text("\(all.count) in your library").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                }
+                Spacer()
+                FilterField(prompt: "Filter by name or genre", text: $filter)
             }
 
-            PageScroll {
-                HStack(alignment: .lastTextBaseline) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Artists").font(.display(34, .heavy))
-                        Text("\(all.count) in your library").font(.system(size: 13)).foregroundStyle(Theme.secondary)
-                    }
-                    Spacer()
-                    FilterField(prompt: "Filter by name or genre", text: $filter)
-                }
-
-                switch artists {
-                case .loading:
-                    LoadingRows()
-                case .failed(let message):
-                    EmptyNote(symbol: "person.crop.circle.badge.exclamationmark", title: "Couldn't load artists", message: message)
-                case .loaded:
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 6)], alignment: .leading, spacing: 14) {
-                        ForEach(shown) { artist in
-                            MediaCard(title: artist.name, subtitle: artist.genre ?? "Artist", artwork: artist.artwork, circular: true, width: nil) {
-                                model.navigate(.artist(artist))
-                            }
+            switch artists {
+            case .loading:
+                LoadingRows()
+            case .failed(let message):
+                EmptyNote(symbol: "person.crop.circle.badge.exclamationmark", title: "Couldn't load artists", message: message)
+            case .loaded:
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 200), spacing: 6)], alignment: .leading, spacing: 14) {
+                    ForEach(shown) { artist in
+                        MediaCard(title: artist.name, subtitle: artist.genre ?? "Artist", artwork: artist.artwork, circular: true, width: nil) {
+                            model.navigate(.artist(artist))
                         }
                     }
-                    .padding(.horizontal, -10)
                 }
-            }
-            .task {
-                do { artists = .loaded(try await model.provider.artists()) } catch { artists = .failed(error.localizedDescription) }
+                .padding(.horizontal, -10)
             }
         }
-        .hotReloadable()
+        .task {
+            do { artists = .loaded(try await model.provider.artists()) } catch { artists = .failed(error.localizedDescription) }
+        }
     }
 }
 
@@ -54,28 +50,24 @@ struct ArtistDetailView: View {
     @State private var showAllSongs = false
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            let loaded: ArtistDetail? = if case .loaded(let d) = detail { d } else { nil }
-            let shownArtist = loaded?.artist ?? artist
+        let loaded: ArtistDetail? = if case .loaded(let d) = detail { d } else { nil }
+        let shownArtist = loaded?.artist ?? artist
 
-            PageScroll {
-                hero(shownArtist, songs: loaded?.topSongs ?? [])
+        PageScroll {
+            hero(shownArtist, songs: loaded?.topSongs ?? [])
 
-                switch detail {
-                case .loading:
-                    LoadingRows(count: 5)
-                case .failed(let message):
-                    EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load this artist", message: message)
-                case .loaded(let detail):
-                    content(detail)
-                }
-            }
-            .task {
-                do { detail = .loaded(try await model.provider.detail(for: artist)) } catch { detail = .failed(error.localizedDescription) }
+            switch detail {
+            case .loading:
+                LoadingRows(count: 5)
+            case .failed(let message):
+                EmptyNote(symbol: "exclamationmark.triangle", title: "Couldn't load this artist", message: message)
+            case .loaded(let detail):
+                content(detail)
             }
         }
-        .hotReloadable()
+        .task {
+            do { detail = .loaded(try await model.provider.detail(for: artist)) } catch { detail = .failed(error.localizedDescription) }
+        }
     }
 
     private func hero(_ artist: ArtistItem, songs: [TrackItem]) -> some View {

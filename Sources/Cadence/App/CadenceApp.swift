@@ -18,6 +18,10 @@ struct CadenceApp: App {
         .defaultSize(width: 1380, height: 880)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Button(model.update.isReady ? "Restart to Update" : "Restart Cadence") { model.restartApp() }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+            }
             CommandMenu("Go") {
                 Button("Search…") { model.palette.present() }
                     .keyboardShortcut("k")
@@ -47,7 +51,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Needed when launched as a bare SwiftPM executable rather than a bundle.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
-        MainActor.assumeIsolated { HotReload.start() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

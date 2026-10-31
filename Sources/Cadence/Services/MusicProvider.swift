@@ -14,4 +14,6 @@ protocol MusicProvider: AnyObject {
     func artists() async throws -> [ArtistItem]
     func detail(for artist: ArtistItem) async throws -> ArtistDetail
     func search(_ term: String) async throws -> SearchResults
+    /// Songs by ID, in the order given, skipping any that no longer exist.
+    func tracks(withIDs ids: [String]) async throws -> [TrackItem]
 }

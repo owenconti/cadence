@@ -5,59 +5,55 @@ struct OnboardingView: View {
     @State private var appeared = false
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            VStack(spacing: 36) {
-                VStack(spacing: 16) {
-                    LogoMark(size: 64)
-                    Text("Your music, minus the clutter.")
-                        .font(.display(44, .heavy))
-                    Text("Playlists, artists and discovery, all one glance away.")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Theme.secondary)
-                }
-
-                HStack(spacing: 14) {
-                    feature("music.note.list", "Playlists", "Filter, shuffle, and queue in a click")
-                    feature("person.2.fill", "Artists", "Top songs, albums and who's similar")
-                    feature("sparkles", "Discovery", "Recommendations, charts and new releases")
-                    feature("text.append", "Smart queue", "Play next, shuffle up next, jump anywhere")
-                }
-
-                VStack(spacing: 12) {
-                    Button {
-                        Task { await model.connectAppleMusic() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if model.access == .connecting { ProgressView().controlSize(.small) }
-                            Image(systemName: "applelogo")
-                            Text("Continue with Apple Music")
-                        }
-                    }
-                    .buttonStyle(PillButtonStyle())
-                    .disabled(model.access == .connecting)
-
-                    Text("Uses the Apple ID you're signed into on this Mac.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.tertiary)
-
-                    AccessNotice()
-                        .animation(.smooth(duration: 0.3), value: model.access)
-
-                    Button("or explore with the demo library", action: model.startDemo)
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.secondary)
-                        .padding(.top, 8)
-                }
+        VStack(spacing: 36) {
+            VStack(spacing: 16) {
+                LogoMark(size: 64)
+                Text("Your music, minus the clutter.")
+                    .font(.display(44, .heavy))
+                Text("Playlists, artists and discovery, all one glance away.")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.secondary)
             }
-            .padding(60)
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 16)
-            .onAppear { withAnimation(.smooth(duration: 0.8)) { appeared = true } }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            HStack(spacing: 14) {
+                feature("music.note.list", "Playlists", "Filter, shuffle, and queue in a click")
+                feature("person.2.fill", "Artists", "Top songs, albums and who's similar")
+                feature("sparkles", "Discovery", "Recommendations, charts and new releases")
+                feature("text.append", "Smart queue", "Play next, shuffle up next, jump anywhere")
+            }
+
+            VStack(spacing: 12) {
+                Button {
+                    Task { await model.connectAppleMusic() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if model.access == .connecting { ProgressView().controlSize(.small) }
+                        Image(systemName: "applelogo")
+                        Text("Continue with Apple Music")
+                    }
+                }
+                .buttonStyle(PillButtonStyle())
+                .disabled(model.access == .connecting)
+
+                Text("Uses the Apple ID you're signed into on this Mac.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.tertiary)
+
+                AccessNotice()
+                    .animation(.smooth(duration: 0.3), value: model.access)
+
+                Button("or explore with the demo library", action: model.startDemo)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+                    .padding(.top, 8)
+            }
         }
-        .hotReloadable()
+        .padding(60)
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 16)
+        .onAppear { withAnimation(.smooth(duration: 0.8)) { appeared = true } }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func feature(_ symbol: String, _ title: String, _ detail: String) -> some View {
@@ -83,35 +79,31 @@ private struct AccessNotice: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            switch model.access {
-            case .idle, .connecting:
-                EmptyView()
-            case .denied:
-                card(
-                    symbol: "lock.fill",
-                    title: "Apple Music access is turned off",
-                    message: "Turn on Cadence under Privacy & Security › Media & Apple Music, then come back.",
-                    action: ("Open System Settings", model.openPrivacySettings)
-                )
-            case .restricted:
-                card(
-                    symbol: "hand.raised.fill",
-                    title: "Apple Music is restricted on this Mac",
-                    message: "Screen Time or a management profile is blocking access to Apple Music.",
-                    action: nil
-                )
-            case .failed(let reason):
-                card(
-                    symbol: "exclamationmark.triangle.fill",
-                    title: "Couldn't reach Apple Music",
-                    message: reason,
-                    action: ("Try Again", { Task { await model.connectAppleMusic() } })
-                )
-            }
+        switch model.access {
+        case .idle, .connecting:
+            EmptyView()
+        case .denied:
+            card(
+                symbol: "lock.fill",
+                title: "Apple Music access is turned off",
+                message: "Turn on Cadence under Privacy & Security › Media & Apple Music, then come back.",
+                action: ("Open System Settings", model.openPrivacySettings)
+            )
+        case .restricted:
+            card(
+                symbol: "hand.raised.fill",
+                title: "Apple Music is restricted on this Mac",
+                message: "Screen Time or a management profile is blocking access to Apple Music.",
+                action: nil
+            )
+        case .failed(let reason):
+            card(
+                symbol: "exclamationmark.triangle.fill",
+                title: "Couldn't reach Apple Music",
+                message: reason,
+                action: ("Try Again", { Task { await model.connectAppleMusic() } })
+            )
         }
-        .hotReloadable()
     }
 
     private func card(symbol: String, title: String, message: String, action: (String, () -> Void)?) -> some View {
@@ -148,19 +140,15 @@ struct LogoMark: View {
     var size: CGFloat = 22
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            ZStack {
-                RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                    .fill(LinearGradient(colors: [Theme.accent, Color(hex: 0xC0397A)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                HStack(alignment: .bottom, spacing: size * 0.08) {
-                    ForEach([0.32, 0.55, 0.42], id: \.self) { h in
-                        Capsule().fill(.white).frame(width: size * 0.11, height: size * h)
-                    }
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+                .fill(LinearGradient(colors: [Theme.accent, Color(hex: 0xC0397A)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            HStack(alignment: .bottom, spacing: size * 0.08) {
+                ForEach([0.32, 0.55, 0.42], id: \.self) { h in
+                    Capsule().fill(.white).frame(width: size * 0.11, height: size * h)
                 }
             }
-            .frame(width: size, height: size)
         }
-        .hotReloadable()
+        .frame(width: size, height: size)
     }
 }

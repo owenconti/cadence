@@ -55,6 +55,19 @@ final class Player {
         if backend == .musicKit { live { try await self.startLiveQueue(list, at: startIndex) } }
     }
 
+    /// Picks up a queue carried over from before a restart.
+    func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool) {
+        guard tracks.indices.contains(start) else { return }
+        queue = tracks
+        index = start
+        self.position = min(max(position, 0), tracks[start].duration)
+        isPlaying = playing
+        if backend == .musicKit {
+            let resumeAt = self.position
+            live { try await self.startLiveQueue(tracks, at: start, from: resumeAt, autoplay: playing) }
+        }
+    }
+
     func toggle() {
         guard current != nil else { return }
         isPlaying.toggle()
@@ -162,14 +175,15 @@ final class Player {
 
     // MARK: MusicKit
 
-    private func startLiveQueue(_ tracks: [TrackItem], at start: Int) async throws {
+    private func startLiveQueue(_ tracks: [TrackItem], at start: Int, from position: TimeInterval = 0, autoplay: Bool = true) async throws {
         let songs = tracks.compactMap(\.song)
         guard !songs.isEmpty else { return }
         let player = ApplicationMusicPlayer.shared
         let first = tracks[start].song
         player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
         try await player.prepareToPlay()
-        try await player.play()
+        if position > 0 { player.playbackTime = position }
+        if autoplay { try await player.play() }
     }
 
     private func live(_ work: @escaping @MainActor () async throws -> Void) {

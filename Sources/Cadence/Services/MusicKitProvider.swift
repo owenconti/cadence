@@ -76,6 +76,23 @@ final class MusicKitProvider: MusicProvider {
         )
     }
 
+    func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
+        // Library songs have "i."-prefixed IDs; everything else is catalog.
+        let libraryIDs = ids.filter { $0.hasPrefix("i.") }.map { MusicItemID($0) }
+        let catalogIDs = ids.filter { !$0.hasPrefix("i.") }.map { MusicItemID($0) }
+        var songs: [MusicItemID: Song] = [:]
+        if !libraryIDs.isEmpty {
+            var request = MusicLibraryRequest<Song>()
+            request.filter(matching: \.id, memberOf: libraryIDs)
+            for song in try await request.response().items { songs[song.id] = song }
+        }
+        if !catalogIDs.isEmpty {
+            let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: catalogIDs)
+            for song in try await request.response().items { songs[song.id] = song }
+        }
+        return ids.compactMap { songs[MusicItemID($0)].map(TrackItem.init(song:)) }
+    }
+
     func search(_ term: String) async throws -> SearchResults {
         var request = MusicCatalogSearchRequest(term: term, types: [Song.self, Artist.self, Album.self, Playlist.self])
         request.limit = 6

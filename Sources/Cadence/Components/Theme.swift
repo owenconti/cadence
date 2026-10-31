@@ -94,20 +94,16 @@ struct PlayFab: View {
     let action: () -> Void
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            Button(action: action) {
-                Image(systemName: "play.fill")
-                    .font(.system(size: size * 0.38, weight: .bold))
-                    .foregroundStyle(.black)
-                    .offset(x: 1)
-                    .frame(width: size, height: size)
-                    .background(Circle().fill(.white))
-                    .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
-            }
-            .buttonStyle(PressableStyle())
+        Button(action: action) {
+            Image(systemName: "play.fill")
+                .font(.system(size: size * 0.38, weight: .bold))
+                .foregroundStyle(.black)
+                .offset(x: 1)
+                .frame(width: size, height: size)
+                .background(Circle().fill(.white))
+                .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
         }
-        .hotReloadable()
+        .buttonStyle(PressableStyle())
     }
 }
 
@@ -116,40 +112,32 @@ struct FilterField: View {
     @Binding var text: String
 
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 11, weight: .semibold))
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.tertiary)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
                     .foregroundStyle(Theme.tertiary)
-                TextField(prompt, text: $text)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                if !text.isEmpty {
-                    Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.tertiary)
-                }
             }
-            .padding(.horizontal, 12)
-            .frame(width: 220, height: 32)
-            .background(Capsule().fill(Theme.card))
-            .overlay(Capsule().stroke(Theme.hairline))
         }
-        .hotReloadable()
+        .padding(.horizontal, 12)
+        .frame(width: 220, height: 32)
+        .background(Capsule().fill(Theme.card))
+        .overlay(Capsule().stroke(Theme.hairline))
     }
 }
 
 struct ExplicitBadge: View {
     var body: some View {
-        let _ = HotReload.observe()
-        Group {
-            Text("E")
-                .font(.system(size: 9, weight: .heavy))
-                .foregroundStyle(Theme.canvas)
-                .frame(width: 14, height: 14)
-                .background(RoundedRectangle(cornerRadius: 3).fill(Theme.tertiary))
-        }
-        .hotReloadable()
+        Text("E")
+            .font(.system(size: 9, weight: .heavy))
+            .foregroundStyle(Theme.canvas)
+            .frame(width: 14, height: 14)
+            .background(RoundedRectangle(cornerRadius: 3).fill(Theme.tertiary))
     }
 }

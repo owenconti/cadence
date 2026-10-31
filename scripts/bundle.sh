@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Builds Cadence and wraps it in a signed .app bundle at build/Cadence.app.
+# Builds Cadence into a signed .app bundle at build/Cadence.app.
+#
+# Safe while that app is running: the new bundle is assembled and signed in a
+# staging folder, then swapped in by rename. The running copy keeps its files
+# and shows "Update ready"; Restart app (⌘K) switches to the new build.
 #
 # Signs with the first Apple Development or Developer ID identity in your
 # keychain. MusicKit only issues tokens to apps whose bundle ID is registered
@@ -9,6 +13,7 @@ cd "$(dirname "$0")/.."
 
 BUNDLE_ID="${BUNDLE_ID:-com.owenconti.cadence}"
 CONFIG="${CONFIG:-release}"
+APP="${APP:-build/Cadence.app}"
 
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
     identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
@@ -27,12 +32,16 @@ fi
 swift build -c "$CONFIG"
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/Cadence"
 
-APP=build/Cadence.app
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/Cadence"
-cp Support/AppIcon/Cadence.icns "$APP/Contents/Resources/Cadence.icns"
-sed "s/\$(BUNDLE_ID)/$BUNDLE_ID/" Support/Info.plist > "$APP/Contents/Info.plist"
+STAGE="$(dirname "$APP")/.staging-$$/Cadence.app"
+trap 'rm -rf "$(dirname "$STAGE")"' EXIT
+mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
+cp "$BIN" "$STAGE/Contents/MacOS/Cadence"
+cp Support/AppIcon/Cadence.icns "$STAGE/Contents/Resources/Cadence.icns"
+sed "s/\$(BUNDLE_ID)/$BUNDLE_ID/" Support/Info.plist > "$STAGE/Contents/Info.plist"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime "$STAGE" >/dev/null
 
-codesign --force --sign "$SIGN_IDENTITY" --options runtime "$APP" >/dev/null
+# Swap by rename, never by overwriting files a running copy may have mapped.
+OLD="$(dirname "$STAGE")/old.app"
+[[ -d "$APP" ]] && mv "$APP" "$OLD"
+mv "$STAGE" "$APP"
 echo "Built $APP ($BUNDLE_ID, signed with '$SIGN_IDENTITY')"

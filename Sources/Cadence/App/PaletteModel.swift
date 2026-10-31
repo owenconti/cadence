@@ -15,7 +15,13 @@ final class PaletteModel {
         var artwork: ArtworkSource?
         var circular = false
         var hint: String?
+        /// Extra words the query also matches, beyond the title.
+        var keywords = ""
         var action: @MainActor () -> Void
+
+        func matches(_ query: String) -> Bool {
+            query.isEmpty || title.localizedCaseInsensitiveContains(query) || keywords.localizedCaseInsensitiveContains(query)
+        }
     }
 
     var isPresented = false
