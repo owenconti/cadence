@@ -52,15 +52,13 @@ final class AppUpdate {
     }
 }
 
-/// What a restart carries from the old copy to the new one: where you were and
-/// what was playing, so music resumes after a brief pause.
+/// What a restart carries from the old copy to the new one, beyond the queue
+/// (which `PlaybackStore` keeps on disk): where you were, and whether music
+/// should keep playing.
 struct Handoff: Codable {
     var section: String
-    var trackIDs: [String]
-    var index: Int?
-    var position: TimeInterval
-    var isPlaying: Bool
     var windowFrame: CGRect?
+    var keepPlaying: Bool
     var savedAt = Date()
 
     private static let key = "cadence.handoff"
@@ -80,10 +78,5 @@ struct Handoff: Codable {
               let handoff = try? JSONDecoder().decode(Handoff.self, from: data),
               Date().timeIntervalSince(handoff.savedAt) < 120 else { return nil }
         return handoff
-    }
-
-    /// Where playback should pick up, counting the time the restart took.
-    var resumePosition: TimeInterval {
-        isPlaying ? position + Date().timeIntervalSince(savedAt) : position
     }
 }

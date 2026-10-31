@@ -8,6 +8,7 @@ import notify
 /// - `snapshot`: writes `window.png` and `state.json` to the check folder.
 /// - `play`: plays the first demo playlist from its third song, 48 s in.
 /// - `restart`: chooses Restart app.
+/// - `quit`: quits normally, as ⌘Q would.
 /// - `open-largest`: opens the biggest playlist from Discover and records the
 ///   longest main-thread stall during the page transition (`stallMs`) and over
 ///   the next 2 s (`stallMsOverall`).
@@ -49,6 +50,7 @@ enum CheckHooks {
             }
         }
         listen("restart") { model.restartApp() }
+        listen("quit") { NSApp.terminate(nil) }
         listen("open-largest") {
             guard let largest = model.playlists.max(by: { ($0.trackCount ?? 0) < ($1.trackCount ?? 0) }) else { return }
             model.select(.discover)

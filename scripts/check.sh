@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Automated check on a throwaway debug copy (build/check/Cadence.app, demo library):
 # builds it, plays music, rebuilds it in place, confirms "Update ready", restarts
-# it, and confirms the new process resumed the same song from the same place.
+# it, confirms the new process resumed the same song from the same place, then
+# quits and reopens it and confirms the song is back, paused.
 # Never touches the user's own app. Screenshots land in build/check/out/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -41,6 +42,14 @@ python3 -c "import sys; sys.exit(0 if $after >= $position else 1)" || fail "posi
 [[ "$(state updateReady)" == False ]] || fail "new copy still says update ready"
 cp "$OUT/window.png" "$OUT/3-restarted.png"
 echo "ok   restarted (pid $(state pid)); '$track' resumed at ${after%.*}s"
+
+post quit; sleep 2
+pgrep -f "$APP/Contents/MacOS/Cadence" >/dev/null && fail "app didn't quit"
+open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
+[[ "$(state track)" == "$track" ]] || fail "after quitting and reopening, got '$(state track)' instead of '$track'"
+[[ "$(state playing)" == False ]] || fail "reopened app started playing by itself"
+cp "$OUT/window.png" "$OUT/4-reopened.png"
+echo "ok   quit and reopened; '$track' is back, paused at $(state position | cut -d. -f1)s"
 
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 echo "PASS"

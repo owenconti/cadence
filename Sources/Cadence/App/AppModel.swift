@@ -27,6 +27,9 @@ final class AppModel {
     let player = Player()
     let palette = PaletteModel()
     let update = AppUpdate()
+    /// What's playing, on disk so it survives quitting, crashes and restarts.
+    @ObservationIgnored private let playbackStore = PlaybackStore()
+    @ObservationIgnored private var saveTimer: Timer?
     /// Media keys and Control Center; only the user's own copy takes them.
     @ObservationIgnored private var nowPlaying: NowPlaying?
 
@@ -57,6 +60,12 @@ final class AppModel {
             return
         }
         handoff = Handoff.take()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.savePlayback() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.savePlayback(force: true) }
+        }
         if let frame = handoff?.windowFrame {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 NSApp.windows.first { $0.isVisible }?.setFrame(frame, display: true)
@@ -189,10 +198,10 @@ final class AppModel {
         discoverFeed = nil
         stack = []
         section = .discover
-        if let handoff {
-            self.handoff = nil
-            Task { await restore(handoff) }
-        }
+        let handoff = self.handoff
+        self.handoff = nil
+        if let section = handoff.flatMap({ SidebarSection(rawValue: $0.section) }) { self.section = section }
+        Task { await restorePlayback(keepPlaying: handoff?.keepPlaying ?? false) }
 
         preloading = true
         Task {
@@ -223,24 +232,30 @@ final class AppModel {
     /// Relaunches into the build on disk (newer, if `update.isReady`), carrying
     /// the queue and position across so music resumes after a brief pause.
     func restartApp() {
+        savePlayback(force: true)
         update.relaunch(saving: Handoff(
             section: section.rawValue,
-            trackIDs: player.queue.map(\.id),
-            index: player.index,
-            position: player.position,
-            isPlaying: player.isPlaying,
-            windowFrame: NSApp.windows.first { $0.isVisible }?.frame
+            windowFrame: NSApp.windows.first { $0.isVisible }?.frame,
+            keepPlaying: player.isPlaying
         ))
     }
 
-    private func restore(_ handoff: Handoff) async {
-        if let section = SidebarSection(rawValue: handoff.section) { select(section) }
-        guard let index = handoff.index, handoff.trackIDs.indices.contains(index),
-              let tracks = try? await provider.tracks(withIDs: handoff.trackIDs) else { return }
-        // Songs that vanished from the library shift the queue; find ours again.
-        let current = handoff.trackIDs[index]
-        guard let start = tracks.firstIndex(where: { $0.id == current }) else { return }
-        player.resume(tracks, at: start, position: handoff.resumePosition, playing: handoff.isPlaying)
+    func savePlayback(force: Bool = false) {
+        guard RunMode.current != .snapshots else { return }
+        playbackStore.save(player, force: force)
+    }
+
+    /// Brings back what was playing when the app last ran: paused on a normal
+    /// launch, still playing after Restart app.
+    private func restorePlayback(keepPlaying: Bool) async {
+        let provider = self.provider
+        guard RunMode.current != .snapshots,
+              let saved = await playbackStore.load(lookup: { ids in (try? await provider.tracks(withIDs: ids)) ?? [] }),
+              saved.position.live == provider.isLive,
+              let start = saved.tracks.firstIndex(where: { $0.id == saved.position.trackID }) else { return }
+        let playing = keepPlaying && saved.position.isPlaying
+        let elapsed = playing ? Date().timeIntervalSince(saved.position.savedAt) : 0
+        player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing)
     }
 
     func refreshPlaylists() async {
