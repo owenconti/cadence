@@ -13,7 +13,7 @@ struct CadenceApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Cadence") {
+        WindowGroup("Cadence", id: "main") {
             RootView()
                 .environment(model)
             #if DEBUG
@@ -28,12 +28,48 @@ struct CadenceApp: App {
             // shortcut against a menu that hasn't refreshed yet (a disabled
             // Now Playing ignored ⇧⌘F while music played), and every action
             // here is harmless when there's nothing to do.
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) { FileMenuItems() }
+            CommandGroup(before: .windowList) { WindowMenuItems() }
             CommandGroup(after: .appInfo) { AppMenuItems(model: model) }
             CommandGroup(replacing: .sidebar) { ViewMenuItems(model: model) }
             CommandMenu("Go") { GoMenuItems(model: model) }
             CommandMenu("Playback") { PlaybackMenuItems(model: model) }
         }
+    }
+}
+
+/// ⌘W closes the window; the app keeps running, and playing.
+private struct FileMenuItems: View {
+    var body: some View {
+        Button("Close Window") { NSApp.appWindow?.performClose(nil) }
+            .keyboardShortcut("w")
+    }
+}
+
+/// ⌘0 brings the window back (or to the front), as in Music. Clicking the
+/// Dock icon does too.
+private struct WindowMenuItems: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Cadence") { CadenceWindow.show(openWindow) }
+            .keyboardShortcut("0")
+        Divider()
+    }
+}
+
+/// The one main window.
+@MainActor
+enum CadenceWindow {
+    /// Fronts the window, or opens it again if it was closed.
+    static func show(_ openWindow: OpenWindowAction) {
+        if let window = NSApp.appWindow {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            openWindow(id: "main")
+        }
+        // A check copy stays in the background, out of the user's way.
+        if RunMode.current != .check { NSApp.activate() }
     }
 }
 
@@ -101,5 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Closing the window (⌘W) leaves the app running and the music playing;
+    /// the Dock icon or ⌘0 brings the window back, ⌘Q quits.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

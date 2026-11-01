@@ -220,6 +220,21 @@ press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuf
 [[ "$(state upNextAll)" == "$expected" ]] || fail "after reopening, shuffle off put a song queued twice out of order: $(state upNextAll) instead of $expected"
 echo "ok   shuffled with a song queued twice, reopened, shuffle off: back in order"
 
+# ⌘W closes the window but the app keeps running, and playing; ⌘0 and
+# reopening the app (as a Dock click does) bring the window back.
+steps "play-playlist 0" "wait 1" || fail "steps didn't run"
+pid=$(state pid)
+press cmd-w && [[ "$(state windowOpen)" == False ]] || fail "⌘W didn't close the window"
+[[ "$(state pid)" == "$pid" ]] || fail "closing the window quit the app"
+p1=$(state position); sleep 2
+[[ "$(state playingNow)" == True && "$(state enginePlaying)" == True ]] || fail "the music stopped when the window closed"
+python3 -c "import sys; sys.exit(0 if $(state position) > $p1 + 1 else 1)" || fail "the music didn't carry on with the window closed"
+press cmd-0 && [[ "$(state windowOpen)" == True ]] || fail "⌘0 didn't bring the window back"
+press cmd-w && [[ "$(state windowOpen)" == False ]] || fail "⌘W didn't close the window again"
+open -g "$APP"; sleep 1.5
+[[ "$(state windowOpen)" == True && "$(state pid)" == "$pid" ]] || fail "reopening the app (a Dock click) didn't bring the window back"
+echo "ok   ⌘W closes the window and the music plays on; ⌘0 and the Dock bring it back"
+
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 
 # Artwork from the real library: every source must draw.

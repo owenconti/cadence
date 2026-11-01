@@ -297,6 +297,11 @@ struct CommandPalette: View {
                               symbol: "arrow.up.left.and.arrow.down.right", hint: "⇧⌘F",
                               keywords: "full player fullscreen mode big artwork") { model.toggleNowPlayingMode() })
         }
+        list.append(.init(id: "view:close", group: "View", title: "Close window", subtitle: "Cadence keeps running and playing",
+                          symbol: "xmark.square", hint: "⌘W", keywords: "hide background keep playing") {
+            // After the palette has gone, so the window it's in is the one closed.
+            DispatchQueue.main.async { NSApp.appWindow?.performClose(nil) }
+        })
         list.append(.init(id: "view:widths", group: "View", title: "Reset panel widths", subtitle: "Sidebar and Now panel back to their usual size",
                           symbol: "rectangle.split.3x1", keywords: "resize sidebar now panel width default") { model.resetPanelWidths() })
 

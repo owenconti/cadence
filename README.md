@@ -32,7 +32,7 @@ The build signs with the first Apple Development or Developer ID identity in you
 | Now panel | Artwork, scrubber, transport, and the Up Next queue. The artwork compacts on short windows so the queue keeps its space |
 | Command palette | ⌘K searches songs, artists, albums and playlists, and runs every app action (navigation, playback, reload library, Restart app), all from the keyboard |
 
-Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 sections · ⌘[ back · ⌘K search · ⌘B hide sidebar · ⇧⌘F Now Playing · ⌥⌘R restart app · Esc close. Drag the inner edge of the sidebar or the Now panel to resize it; double-click to reset. In ⌘K, ⌘↩ plays the selected song next and ⌥↩ adds it to the queue.
+Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 sections · ⌘[ back · ⌘K search · ⌘B hide sidebar · ⇧⌘F Now Playing · ⌘W close the window (music keeps playing) · ⌘0 or the Dock icon bring it back · ⌥⌘R restart app · Esc close. Drag the inner edge of the sidebar or the Now panel to resize it; double-click to reset. In ⌘K, ⌘↩ plays the selected song next and ⌥↩ adds it to the queue.
 
 ## Code map
 

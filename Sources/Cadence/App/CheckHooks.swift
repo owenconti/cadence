@@ -44,6 +44,7 @@ enum CheckHooks {
     private static let keys: [String: (String, UInt16, NSEvent.ModifierFlags)] = [
         "cmd-b": ("b", 11, .command), "shift-cmd-f": ("f", 3, [.command, .shift]),
         "cmd-k": ("k", 40, .command), "esc": ("\u{1b}", 53, []), "cmd-s": ("s", 1, .command),
+        "cmd-w": ("w", 13, .command), "cmd-0": ("0", 29, .command),
     ]
     private static var stallMsOverall: Double = 0
 
@@ -196,6 +197,7 @@ enum CheckHooks {
             "paletteOpen": model.palette.isPresented,
             "paletteQuery": model.palette.query,
             "pressed": lastPress,
+            "windowOpen": NSApp.appWindow != nil,
             "ran": lastRun,
             "playingNow": model.player.isPlaying,
             "notice": model.player.notice ?? "",
@@ -234,10 +236,11 @@ enum CheckHooks {
 
     /// A key press delivered through the app, as if typed.
     private static func press(_ chars: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
-        guard let window = NSApp.appWindow else { return }
+        // No window (closed with ⌘W): menu shortcuts still reach the menus.
+        let window = NSApp.appWindow
         for kind in [NSEvent.EventType.keyDown, .keyUp] {
             if let event = NSEvent.keyEvent(with: kind, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
-                                            windowNumber: window.windowNumber, context: nil, characters: chars,
+                                            windowNumber: window?.windowNumber ?? 0, context: nil, characters: chars,
                                             charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode) {
                 NSApp.sendEvent(event)
             }
