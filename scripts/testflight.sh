@@ -3,12 +3,16 @@
 # The TestFlight app on the phone installs it (and each later upload) over the
 # air; nothing is plugged in.
 #
-# Signs and uploads with an App Store Connect API key: the .p8 at
+# Uses an App Store Connect API key: the .p8 at
 # ~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8, and its IDs in
 # ~/.appstoreconnect/cadence.env (ASC_KEY_ID=..., ASC_ISSUER_ID=...).
-# Xcode's automatic signing makes the distribution certificate and profile
-# with that key. The app record (com.owenconti.cadence) must exist in App
-# Store Connect; Apple's API can't create one.
+#
+# Xcode's own export can't sign with the key (App Store Connect rejects its
+# token for "store configuration"), so this does what it would: builds the app
+# unsigned, gets an App Store certificate and profile through the API
+# (scripts/asc.py signing; the certificate lives in its own keychain), signs,
+# packs the .ipa and uploads it with altool. The app record
+# (com.owenconti.cadence) must exist in App Store Connect.
 #
 # The build number is the commit count, so each upload needs a new commit.
 set -euo pipefail
@@ -24,49 +28,78 @@ command -v xcodegen >/dev/null || die "xcodegen is missing (brew install xcodege
 CONFIG_FILE="$HOME/.appstoreconnect/cadence.env"
 [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
 [[ -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" ]] || die "no App Store Connect API key IDs in $CONFIG_FILE (ASC_KEY_ID, ASC_ISSUER_ID)"
-KEY="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
-[[ -f "$KEY" ]] || die "the API key file isn't at $KEY"
-AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+[[ -f "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8" ]] || die "the API key file isn't in ~/.appstoreconnect/private_keys"
 
 [[ -z "$(git status --porcelain)" ]] || die "commit first: the build number is the commit count, and the upload should match a commit"
 BUILD="$(git rev-list --count HEAD)"
 
 (cd iOS && xcodegen generate --quiet)
-OUT=build/phone/testflight
+OUT="$PWD/build/phone/testflight"
 rm -rf "$OUT"
 mkdir -p "$OUT"
-LOG="$OUT/xcodebuild.log"
+LOG="$OUT/build.log"
 
-run() {
-    if ! xcodebuild "$@" >>"$LOG" 2>&1; then
-        grep -E 'error:|Error Domain|ITMS-' "$LOG" | sort -u | head -20 >&2 || true
-        die "xcodebuild failed; full log in $LOG"
-    fi
-}
-
-# Archived unsigned: automatic signing would want a development profile, which
-# needs a registered device. The export signs it for distribution instead.
-echo "Archiving build ${BUILD}…"
-run -project iOS/CadencePhone.xcodeproj -scheme Cadence -configuration Release \
+echo "Building ${BUILD}…"
+if ! xcodebuild -project iOS/CadencePhone.xcodeproj -scheme Cadence -configuration Release \
     -destination generic/platform=iOS -archivePath "$OUT/Cadence.xcarchive" \
-    CURRENT_PROJECT_VERSION="$BUILD" CODE_SIGNING_ALLOWED=NO archive
+    CURRENT_PROJECT_VERSION="$BUILD" CODE_SIGNING_ALLOWED=NO archive >"$LOG" 2>&1; then
+    grep -E 'error:' "$LOG" | sort -u | head -20 >&2 || true
+    die "build failed; full log in $LOG"
+fi
 
-cat >"$OUT/ExportOptions.plist" <<EOF
+echo "Signing…"
+eval "$(python3 -I scripts/asc.py signing)"   # KEYCHAIN, IDENTITY, PROFILE
+
+PAYLOAD="$OUT/ipa/Payload"
+APP="$PAYLOAD/Cadence.app"
+mkdir -p "$PAYLOAD"
+ditto "$OUT/Cadence.xcarchive/Products/Applications/Cadence.app" "$APP"
+cp "$PROFILE" "$APP/embedded.mobileprovision"
+TEAM=HBLWB8LVKC
+cat >"$OUT/entitlements.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>method</key><string>app-store-connect</string>
-    <key>destination</key><string>upload</string>
-    <key>teamID</key><string>HBLWB8LVKC</string>
-    <key>signingStyle</key><string>automatic</string>
-    <key>manageAppVersionAndBuildNumber</key><false/>
-    <key>testFlightInternalTestingOnly</key><true/>
+    <key>application-identifier</key><string>$TEAM.com.owenconti.cadence</string>
+    <key>com.apple.developer.team-identifier</key><string>$TEAM</string>
+    <key>get-task-allow</key><false/>
+    <key>beta-reports-active</key><true/>
 </dict>
 </plist>
 EOF
 
+# The signing keychain goes on the search list (codesign builds the chain from
+# it) and is unlocked only while signing; both are undone on any exit.
+LOGIN="$HOME/Library/Keychains/login.keychain-db"
+ORIGINAL=()
+while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"; line="${line//\"/}"
+    [[ -n "$line" ]] && ORIGINAL+=("$line")
+done < <(security list-keychains -d user)
+[[ ${#ORIGINAL[@]} -gt 0 ]] || ORIGINAL=("$LOGIN")
+restore() {
+    security list-keychains -d user -s "${ORIGINAL[@]}"
+    security lock-keychain "$KEYCHAIN" 2>/dev/null || true
+}
+trap restore EXIT
+security unlock-keychain -p "$(cat "$HOME/.appstoreconnect/cadence-keychain-password")" "$KEYCHAIN"
+security list-keychains -d user -s "${ORIGINAL[@]}" "$KEYCHAIN"
+
+sign() { codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" "$@" >>"$LOG" 2>&1 || die "couldn't sign ${*: -1}; see $LOG"; }
+if [[ -d "$APP/Frameworks" ]]; then
+    for nested in "$APP"/Frameworks/*; do sign "$nested"; done
+fi
+sign --entitlements "$OUT/entitlements.plist" --generate-entitlement-der "$APP"
+restore
+trap - EXIT
+codesign --verify --strict "$APP" || die "the signed app doesn't verify"
+
+(cd "$OUT/ipa" && zip -qry ../Cadence.ipa Payload)
+
 echo "Uploading to TestFlight…"
-run -exportArchive -archivePath "$OUT/Cadence.xcarchive" -exportOptionsPlist "$OUT/ExportOptions.plist" \
-    -exportPath "$OUT/export" "${AUTH[@]}"
+if ! xcrun altool --upload-app -f "$OUT/Cadence.ipa" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" >>"$LOG" 2>&1; then
+    grep -iE 'error|ITMS-' "$LOG" | sort -u | head -20 >&2 || true
+    die "upload failed; full log in $LOG"
+fi
 echo "Uploaded build $BUILD. TestFlight offers it on the phone once Apple has processed it (usually 5–15 minutes)."

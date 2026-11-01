@@ -34,7 +34,7 @@ make phone            # alternative: install directly on a plugged-in iPhone
 
 **One-time setup for TestFlight:**
 
-1. An App Store Connect API key (Users and Access › Integrations › App Store Connect API, App Manager access). Its `.p8` goes in `~/.appstoreconnect/private_keys/`, and its IDs in `~/.appstoreconnect/cadence.env` as `ASC_KEY_ID=…` and `ASC_ISSUER_ID=…`. It signs (Xcode's automatic signing makes the distribution certificate and profile) and uploads.
+1. An App Store Connect API key (Users and Access › Integrations › App Store Connect API, App Manager access). Its `.p8` goes in `~/.appstoreconnect/private_keys/`, and its IDs in `~/.appstoreconnect/cadence.env` as `ASC_KEY_ID=…` and `ASC_ISSUER_ID=…`. With it, `scripts/asc.py signing` makes the App Store certificate (kept in its own keychain, `~/.appstoreconnect/cadence-signing.keychain-db`) and profile, and altool uploads. Signing also needs Apple's current WWDR G3 intermediate in the login keychain (Xcode normally installs it).
 2. The app record in App Store Connect (Apps › + › New App: iOS, bundle ID `com.owenconti.cadence`). Apple's API can't create it.
 3. An internal testing group with Owen in it (done: "Owen", with access to every build; `scripts/asc.py` talks to the App Store Connect API with the same key), and the TestFlight app on the phone.
 
