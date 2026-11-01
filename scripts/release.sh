@@ -66,7 +66,8 @@ else
     git log --no-merges --format='- %s' ${since:+$since..HEAD} | grep -v '^- Release v' > "$notes" || true
 fi
 
-restore() { [[ -n "${DRY_RUN:-}" || -z "${released:-}" ]] && echo "$current" > VERSION; }
+# A dry run or a failure leaves VERSION as it was.
+restore() { if [[ -n "${DRY_RUN:-}" || -z "${released:-}" ]]; then echo "$current" > VERSION; fi; }
 trap restore EXIT
 
 step "Checking (make check)"
