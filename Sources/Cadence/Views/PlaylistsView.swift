@@ -160,7 +160,7 @@ struct CollectionDetailView: View {
                 FilterField(prompt: "Find in \(kind.lowercased().split(separator: " ").first ?? "list")", text: $filter)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.bottom, 12)
-                TrackListHeader(showArtwork: showArtwork, showAlbum: showArtwork)
+                TrackListHeader(showArtwork: showArtwork, showAlbum: showArtwork, count: shown.count)
                 switch tracks {
                 case .loading:
                     LoadingRows(count: 12, showArtwork: showArtwork, showAlbum: showArtwork)

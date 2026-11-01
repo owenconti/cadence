@@ -32,7 +32,7 @@ struct TrackRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            leading.frame(width: 24)
+            leading.frame(width: Self.numberWidth(for: context.count))
 
             if showArtwork {
                 ArtworkView(source: track.artwork, cornerRadius: 5, resolution: 96)
@@ -120,6 +120,12 @@ struct TrackRow: View {
         }
     }
 
+    /// The number column, wide enough for the list's longest number on one
+    /// line (three digits from song 100).
+    static func numberWidth(for count: Int) -> CGFloat {
+        max(24, CGFloat(String(count).count) * 8.5 + 2)
+    }
+
     private func play() {
         // The row's own place in the list: a playlist can hold a song twice.
         let index = rowIndex ?? context.firstIndex(of: track) ?? 0
@@ -145,10 +151,12 @@ struct TrackMenu: View {
 struct TrackListHeader: View {
     var showArtwork = true
     var showAlbum = true
+    /// How many songs the list has, for the number column's width.
+    var count = 0
 
     var body: some View {
         HStack(spacing: 14) {
-            Text("#").frame(width: 24)
+            Text("#").frame(width: TrackRow.numberWidth(for: count))
             if showArtwork { Color.clear.frame(width: 38, height: 1) }
             Text("TITLE").frame(maxWidth: .infinity, alignment: .leading)
             if showAlbum { Text("ALBUM").frame(maxWidth: .infinity, alignment: .leading) }
