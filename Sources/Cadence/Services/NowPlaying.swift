@@ -1,9 +1,15 @@
+#if os(macOS)
 import AppKit
+typealias PlatformImage = NSImage
+#else
+import UIKit
+typealias PlatformImage = UIImage
+#endif
 import MediaPlayer
 import SwiftUI
 
-/// Connects playback to macOS's Now Playing: Control Center and the menu bar
-/// show the current song, and media keys, headphone buttons and Control
+/// Connects playback to the system's Now Playing: Control Center, the menu bar
+/// and the Lock Screen show the current song, and media keys, headphone buttons and Control
 /// Center's controls drive the player.
 @MainActor
 final class NowPlaying {
@@ -79,7 +85,9 @@ final class NowPlaying {
         MPRemoteCommandCenter.shared().changeShuffleModeCommand.currentShuffleType = player.isShuffled ? .items : .off
         guard let track = player.current else {
             center.nowPlayingInfo = nil
+            #if os(macOS)
             center.playbackState = .stopped
+            #endif
             return
         }
         var info: [String: Any] = [
@@ -94,22 +102,32 @@ final class NowPlaying {
             info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         }
         center.nowPlayingInfo = info
+        #if os(macOS)
         center.playbackState = player.isPlaying ? .playing : .paused
+        #endif
     }
 
-    static func image(for source: ArtworkSource) async -> NSImage? {
+    static func image(for source: ArtworkSource) async -> PlatformImage? {
         switch source {
         case .musicKit(let artwork, _):
             // Catalog artwork is a plain web URL; library artwork uses
             // musicKit:// URLs that only MusicKit's views can load.
             if let url = artwork.url(width: 600, height: 600), url.scheme?.hasPrefix("http") == true,
-               let (data, _) = try? await URLSession.shared.data(from: url), let image = NSImage(data: data) {
+               let (data, _) = try? await URLSession.shared.data(from: url), let image = PlatformImage(data: data) {
                 return image
             }
+            #if os(macOS)
             return await ArtworkSnapshot.image(artwork)
+            #else
+            return nil
+            #endif
         case .generated(let seed, let style, let palette):
             let renderer = ImageRenderer(content: GeneratedArt(seed: seed, style: style, palette: palette).frame(width: 600, height: 600))
+            #if os(macOS)
             return renderer.nsImage
+            #else
+            return renderer.uiImage
+            #endif
         case .mosaic(let tiles):
             guard let first = tiles.first else { return nil }
             return await image(for: first)
@@ -129,7 +147,7 @@ final class NowPlayingArtwork {
     private struct Attempt {
         let id: String
         let source: ArtworkSource
-        var image: NSImage?
+        var image: PlatformImage?
         var loading = true
         var failures = 0
         var retryAt = Date.distantFuture
@@ -141,7 +159,7 @@ final class NowPlayingArtwork {
 
     /// The image if it's ready; otherwise starts loading it (unless a load is
     /// under way or a failed one isn't due again yet) and returns nil.
-    func image(for track: TrackItem) -> NSImage? {
+    func image(for track: TrackItem) -> PlatformImage? {
         if let current, current.id == track.id, current.source == track.artwork {
             if current.image != nil || current.loading || Date() < current.retryAt { return current.image }
         } else {

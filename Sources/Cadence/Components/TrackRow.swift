@@ -11,6 +11,11 @@ struct TrackRow: View {
     var showAlbum = true
 
     @State private var hovering = false
+    #if os(macOS)
+    private static let menuAlways = false
+    #else
+    private static let menuAlways = true
+    #endif
 
     /// The playing song, and, if this list has it more than once, the very
     /// copy that's playing.
@@ -56,9 +61,10 @@ struct TrackRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // A Menu is a full AppKit control, so only the hovered row has one.
+            // A Menu is a full AppKit control, so on the Mac only the hovered
+            // row has one. A phone has no hover, so every row does.
             Group {
-                if hovering {
+                if hovering || Self.menuAlways {
                     Menu {
                         TrackMenu(track: track)
                     } label: {
@@ -87,7 +93,12 @@ struct TrackRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        // A double-click on the Mac; a tap on a phone.
+        #if os(macOS)
         .onTapGesture(count: 2, perform: play)
+        #else
+        .onTapGesture(perform: play)
+        #endif
         .contextMenu { TrackMenu(track: track) }
     }
 

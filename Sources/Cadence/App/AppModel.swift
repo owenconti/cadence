@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import MusicKit
 import Observation
 import os
@@ -27,7 +31,9 @@ final class AppModel {
     private(set) var providerGeneration = 0
     let player = Player()
     let palette = PaletteModel()
+    #if os(macOS)
     let update = AppUpdate()
+    #endif
     /// What's playing, on disk so it survives quitting, crashes and restarts.
     @ObservationIgnored private let playbackStore = PlaybackStore()
     @ObservationIgnored private var saveTimer: Timer?
@@ -79,9 +85,11 @@ final class AppModel {
     /// Nil until known; only meaningful when connected to Apple Music.
     var canPlayCatalog: Bool?
 
+    #if os(macOS)
     @ObservationIgnored private var keyMonitor: Any?
     /// Playback and place carried over from the copy that restarted into this one.
     @ObservationIgnored private var handoff: Handoff?
+    #endif
     @ObservationIgnored private var preloading = false
     /// Bumped by every switch of library (connecting, the demo), so a slow
     /// one finishing late can't undo a newer choice.
@@ -106,19 +114,22 @@ final class AppModel {
     var route: Route { stack.last ?? section.route }
 
     init() {
+        #if os(macOS)
         if ArtworkAudit.runIfRequested() { return }
         installKeyMonitor()
         CheckHooks.install(self)
+        #endif
         // The snapshot tour moves between screens itself.
         if RunMode.current == .normal { nowPlaying = NowPlaying(player: player) }
         guard RunMode.current != .snapshots else {
             phase = .onboarding
             return
         }
-        handoff = Handoff.take()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.savePlayback() }
         }
+        #if os(macOS)
+        handoff = Handoff.take()
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.savePlayback(force: true) }
         }
@@ -127,6 +138,12 @@ final class AppModel {
                 NSApp.appWindow?.setFrame(frame, display: true)
             }
         }
+        #else
+        // iOS suspends a backgrounded app without warning, so save on the way out.
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { _ = self?.savePlayback(force: true) }
+        }
+        #endif
         // Check copies stay on the demo library, away from the user's music.
         if RunMode.current == .check {
             startDemo()
@@ -238,11 +255,20 @@ final class AppModel {
     }
 
     func openPrivacySettings() {
+        #if os(macOS)
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Media")!)
+        #else
+        UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+        #endif
     }
 
     func openSubscribePage() {
-        NSWorkspace.shared.open(URL(string: "https://www.apple.com/apple-music/")!)
+        let url = URL(string: "https://www.apple.com/apple-music/")!
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        UIApplication.shared.open(url)
+        #endif
     }
 
     private func watchSubscription() async {
@@ -266,10 +292,15 @@ final class AppModel {
         discoverFeed = nil
         stack = []
         section = .discover
+        #if os(macOS)
         let handoff = self.handoff
         self.handoff = nil
         if let section = handoff.flatMap({ SidebarSection(rawValue: $0.section) }) { self.section = section }
-        Task { await restorePlayback(keepPlaying: handoff?.keepPlaying ?? false) }
+        let keepPlaying = handoff?.keepPlaying ?? false
+        #else
+        let keepPlaying = false
+        #endif
+        Task { await restorePlayback(keepPlaying: keepPlaying) }
 
         if playlists == nil {
             self.playlists = []
@@ -316,6 +347,7 @@ final class AppModel {
         Task { await refreshPlaylists(recount: true) }
     }
 
+    #if os(macOS)
     // MARK: Restart
 
     /// Relaunches into the build on disk (newer, if `update.isReady`), carrying
@@ -332,6 +364,8 @@ final class AppModel {
             keepPlaying: player.isPlaying
         ))
     }
+
+    #endif
 
     @discardableResult
     func savePlayback(force: Bool = false) -> Bool {
@@ -602,6 +636,7 @@ final class AppModel {
         }
     }
 
+    #if os(macOS)
     // MARK: Keyboard
 
     private func installKeyMonitor() {
@@ -646,4 +681,5 @@ final class AppModel {
         }
         return false
     }
+    #endif
 }

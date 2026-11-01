@@ -77,7 +77,7 @@ struct NowPlayingView: View {
 }
 
 /// The artwork, blown up and blurred, darkened enough for text to sit on.
-private struct Backdrop: View {
+struct Backdrop: View {
     let artwork: ArtworkSource
 
     var body: some View {

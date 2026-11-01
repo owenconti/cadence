@@ -110,6 +110,8 @@ struct PlayFab: View {
 struct FilterField: View {
     let prompt: String
     @Binding var text: String
+    /// Nil fills the row (the phone).
+    var width: CGFloat? = 220
 
     var body: some View {
         HStack(spacing: 6) {
@@ -126,7 +128,7 @@ struct FilterField: View {
             }
         }
         .padding(.horizontal, 12)
-        .frame(width: 220, height: 32)
+        .frame(width: width, height: 32)
         .background(Capsule().fill(Theme.card))
         .overlay(Capsule().stroke(Theme.hairline))
     }
@@ -164,7 +166,9 @@ struct LinkButtonStyle: ButtonStyle {
                 .opacity(pressed ? 0.7 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }
+                #if os(macOS)
                 .pointerStyle(.link)
+                #endif
                 .animation(.easeOut(duration: 0.12), value: hovering)
         }
     }
