@@ -197,6 +197,7 @@ enum CheckHooks {
             "paletteOpen": model.palette.isPresented,
             "paletteQuery": model.palette.query,
             "pressed": lastPress,
+            "mosaics": model.playlistMosaics.values.filter { if case .mosaic = $0 { true } else { false } }.count,
             "windowOpen": NSApp.appWindow != nil,
             "ran": lastRun,
             "playingNow": model.player.isPlaying,

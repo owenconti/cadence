@@ -129,6 +129,8 @@ last=$(state source | sed 's/^Playlist: //')
 recent=$(python3 -c "import json; print(json.load(open('$OUT/state.json'))['playlistsRecent'][0])")
 [[ "$recent" == "$last" ]] || fail "Recent doesn't put the playlist just played ('$last') first: '$recent'"
 echo "ok   playlists sort A–Z, by size, and by recent ('$last' first after playing it)"
+[[ "$(state mosaics)" -ge 1 ]] || fail "no playlist got a cover made of its songs' covers"
+echo "ok   playlists get covers made of their songs' covers ($(state mosaics))"
 
 post focus-filter; sleep 1
 press cmd-k && [[ "$(state paletteOpen)" == True ]] || fail "⌘K didn't open the palette"

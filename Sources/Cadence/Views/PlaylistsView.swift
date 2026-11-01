@@ -50,7 +50,7 @@ struct PlaylistsView: View {
                     // Apple Music playlists say how many songs once counted.
                     subtitle: size.map { "\($0) songs" } ?? (counting ? "000 songs" : playlist.curator ?? "Playlist"),
                     subtitlePending: counting,
-                    artwork: playlist.artwork,
+                    artwork: model.artwork(for: playlist),
                     width: nil
                 ) {
                     model.navigate(.playlist(playlist))
@@ -77,7 +77,7 @@ struct PlaylistDetailView: View {
             title: playlist.name,
             byline: playlist.curator,
             summary: playlist.summary,
-            artwork: playlist.artwork,
+            artwork: model.artwork(for: playlist),
             source: .playlist(playlist),
             showArtwork: true,
             load: { try await model.provider.tracks(in: playlist) }

@@ -181,7 +181,7 @@ struct CommandPalette: View {
     }
 
     private func playlistEntry(_ playlist: PlaylistItem) -> PaletteModel.Entry {
-        .init(id: "playlist:\(playlist.id)", group: "Playlists", title: playlist.name, subtitle: playlist.curator, artwork: playlist.artwork) {
+        .init(id: "playlist:\(playlist.id)", group: "Playlists", title: playlist.name, subtitle: playlist.curator, artwork: model.artwork(for: playlist)) {
             model.navigate(.playlist(playlist))
         }
     }

@@ -277,11 +277,18 @@ enum ArtworkAudit {
         return lines
     }
 
+    /// Every tile of a playlist mosaic draws.
+    private static func allDraw(_ tiles: [ArtworkSource]) async -> Bool {
+        for tile in tiles where await draws(tile) == false { return false }
+        return true
+    }
+
     /// Whether the artwork draws as the app draws it; nil when there's none.
     private static func draws(_ source: ArtworkSource) async -> Bool? {
         switch source {
         case .musicKit(let artwork, _): await ArtworkSnapshot.image(artwork, size: 120, timeout: .seconds(15)) != nil
         case .generated: true
+        case .mosaic(let tiles): await allDraw(tiles)
         case .none: nil
         }
     }

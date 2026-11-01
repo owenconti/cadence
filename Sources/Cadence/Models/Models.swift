@@ -15,13 +15,22 @@ struct Palette: Hashable, Sendable {
 enum ArtworkSource: Hashable, Sendable {
     case generated(seed: UInt64, style: Int, palette: Palette)
     case musicKit(Artwork, palette: Palette)
+    /// A playlist's cover made of its first nine songs' covers, in a 3×3 grid.
+    indirect case mosaic([ArtworkSource])
     case none
 
     var palette: Palette {
         switch self {
         case .generated(_, _, let palette), .musicKit(_, let palette): palette
+        case .mosaic(let tiles): tiles.first?.palette ?? .neutral
         case .none: .neutral
         }
+    }
+
+    /// A playlist's cover from its songs: the first nine songs' covers in a
+    /// 3×3 grid. Nil with fewer than nine, so it keeps its own artwork.
+    static func mosaic(of tracks: [TrackItem]) -> ArtworkSource? {
+        tracks.count >= 9 ? .mosaic(tracks.prefix(9).map(\.artwork)) : nil
     }
 
     init(_ artwork: Artwork?) {

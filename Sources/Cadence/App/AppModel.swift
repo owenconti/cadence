@@ -66,6 +66,9 @@ final class AppModel {
     private(set) var playlistPlayedAt = UserDefaults.standard.dictionary(forKey: AppModel.playedKey) as? [String: Date] ?? [:]
     /// Names of playlists Apple Music lists as recently played, newest first.
     private(set) var recentPlaylistNames: [String] = []
+    /// Covers made from each playlist's songs (`ArtworkSource.mosaic`), by
+    /// playlist ID; built with the song counts, once a launch.
+    private(set) var playlistMosaics: [String: ArtworkSource] = [:]
     /// Playlists whose songs couldn't be counted; Largest puts them last.
     private(set) var uncountedPlaylists: Set<String> = []
     @ObservationIgnored private var countTask: Task<Void, Never>?
@@ -420,17 +423,25 @@ final class AppModel {
         }
     }
 
+    /// A library playlist's cover: a grid of its songs' covers once they've
+    /// loaded, its own artwork until then.
+    func artwork(for playlist: PlaylistItem) -> ArtworkSource {
+        playlistMosaics[playlist.id] ?? playlist.artwork
+    }
+
     func size(of playlist: PlaylistItem) -> Int? {
         playlist.trackCount ?? playlistSizes[playlist.id]
     }
 
-    /// Counts the songs in playlists that don't say, a few at a time, so the
-    /// Largest sort and the song counts fill in as each one finishes. Counts
-    /// everything the first time a launch and on `recount` (Reload library);
-    /// otherwise only playlists without a count, which retries failed ones.
+    /// Loads each playlist's songs, a few at a time, for what the playlist
+    /// doesn't say itself: its song count (for Largest and the cards) and its
+    /// cover grid. Everything the first time a launch and on `recount`
+    /// (Reload library); otherwise only what's missing, which retries failures.
     private func countPlaylistSizes(recount: Bool = false) {
         let everything = recount || !countedSizes
-        let pending = playlists.filter { $0.trackCount == nil && (everything || playlistSizes[$0.id] == nil) }
+        let pending = playlists.filter {
+            everything || playlistMosaics[$0.id] == nil || ($0.trackCount == nil && playlistSizes[$0.id] == nil)
+        }
         guard !pending.isEmpty else { return }
         // One count at a time; a recount replaces one under way.
         if countTask != nil, !recount { return }
@@ -439,17 +450,19 @@ final class AppModel {
         uncountedPlaylists.subtract(pending.map(\.id))
         countTask = Task {
             var queue = pending[...]
-            await withTaskGroup(of: (String, Int?).self) { group in
+            await withTaskGroup(of: (PlaylistItem, [TrackItem]?).self) { group in
                 func next() {
                     guard let playlist = queue.popFirst() else { return }
-                    group.addTask { @MainActor in (playlist.id, (try? await provider.tracks(in: playlist))?.count) }
+                    group.addTask { @MainActor in (playlist, try? await provider.tracks(in: playlist)) }
                 }
                 for _ in 0..<4 { next() }
-                for await (id, count) in group {
+                for await (playlist, tracks) in group {
+                    let id = playlist.id
                     guard !Task.isCancelled, provider === self.provider else { continue }
-                    if let count {
-                        playlistSizes[id] = count
-                    } else {
+                    if let tracks {
+                        if let mosaic = ArtworkSource.mosaic(of: tracks) { playlistMosaics[id] = mosaic }
+                        if playlist.trackCount == nil { playlistSizes[id] = tracks.count }
+                    } else if playlist.trackCount == nil {
                         // An old count may no longer be right; without one it
                         // sorts last and is tried again next time.
                         playlistSizes[id] = nil
@@ -471,6 +484,7 @@ final class AppModel {
         countTask = nil
         countedSizes = false
         uncountedPlaylists = []
+        playlistMosaics = [:]
     }
 
     // MARK: Layout

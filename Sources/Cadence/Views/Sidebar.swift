@@ -134,7 +134,7 @@ private struct PinnedRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ArtworkView(source: playlist.artwork, cornerRadius: 5, resolution: 80)
+            ArtworkView(source: model.artwork(for: playlist), cornerRadius: 5, resolution: 80)
                 .frame(width: 28, height: 28)
             Text(playlist.name)
                 .font(.system(size: 12.5, weight: .medium))

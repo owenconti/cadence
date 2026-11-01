@@ -37,6 +37,23 @@ struct ArtworkView: View {
                     }
                 }
             }
+        case .mosaic(let tiles):
+            GeometryReader { geo in
+                let side = 3
+                let tile = CGSize(width: geo.size.width / CGFloat(side), height: geo.size.height / CGFloat(side))
+                VStack(spacing: 0) {
+                    ForEach(0..<side, id: \.self) { row in
+                        HStack(spacing: 0) {
+                            ForEach(0..<side, id: \.self) { column in
+                                let i = row * side + column
+                                ArtworkView(source: tiles.indices.contains(i) ? tiles[i] : .none, cornerRadius: 0,
+                                            resolution: max(resolution / side, 60), placeholderOnly: placeholderOnly)
+                                    .frame(width: tile.width, height: tile.height)
+                            }
+                        }
+                    }
+                }
+            }
         case .none:
             placeholder(.neutral)
         }

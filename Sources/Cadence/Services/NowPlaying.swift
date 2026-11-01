@@ -110,6 +110,9 @@ final class NowPlaying {
         case .generated(let seed, let style, let palette):
             let renderer = ImageRenderer(content: GeneratedArt(seed: seed, style: style, palette: palette).frame(width: 600, height: 600))
             return renderer.nsImage
+        case .mosaic(let tiles):
+            guard let first = tiles.first else { return nil }
+            return await image(for: first)
         case .none:
             return nil
         }
