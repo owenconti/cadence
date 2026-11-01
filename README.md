@@ -38,6 +38,8 @@ make phone            # alternative: install directly on a plugged-in iPhone
 2. The app record in App Store Connect (Apps › + › New App: iOS, bundle ID `com.owenconti.cadence`). Apple's API can't create it.
 3. An internal testing group with Owen in it (done: "Owen", with access to every build; `scripts/asc.py` talks to the App Store Connect API with the same key), and the TestFlight app on the phone.
 
+**CarPlay:** `iOS/Sources/CarPlay.swift` gives the car Listen Now (Jump back in, Discover's shelves, Trending) and Playlists tabs, each opening songs with Play and Shuffle, and the system's Now Playing screen. Cars only show apps with the CarPlay audio entitlement, which Apple grants on request (developer.apple.com/contact/carplay); until then only Debug builds carry it (`iOS/CarPlay.entitlements`), for the simulator's CarPlay window (I/O › External Displays › CarPlay). Once granted, enable CarPlay Audio on the App ID and add the entitlement to Release too.
+
 Each upload's build number is the commit count, so every upload needs a new commit. TestFlight builds expire after 90 days. `make phone` instead needs the Apple ID in Xcode › Settings › Accounts, the phone plugged in and trusted, and Developer Mode on.
 
 ## Layout

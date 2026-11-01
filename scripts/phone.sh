@@ -40,7 +40,7 @@ for runtime, devices in json.load(sys.stdin)['devices'].items():
 " "$SIM")"
     [[ -n "$udid" ]] || { echo "error: no simulator named $SIM" >&2; exit 1; }
     quiet_build -sdk iphonesimulator -configuration Debug -destination "id=$udid" \
-        -derivedDataPath build/phone/sim CODE_SIGNING_ALLOWED=NO build
+        -derivedDataPath build/phone/sim CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
     app="build/phone/sim/Build/Products/Debug-iphonesimulator/Cadence.app"
     xcrun simctl boot "$udid" 2>/dev/null || true
     xcrun simctl bootstatus "$udid" >/dev/null

@@ -46,6 +46,13 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSAppleMusicUsageDescription: Cadence uses Apple Music to show your library, recommendations, and to play music.
         UIBackgroundModes: [audio]
+        # The phone's window is SwiftUI's own; CarPlay gets a scene of its own.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
         UILaunchScreen:
           UIColorName: ""
         UIStatusBarStyle: UIStatusBarStyleLightContent
@@ -58,3 +65,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: false
+      configs:
+        # CarPlay audio needs an entitlement Apple grants on request; until it
+        # does, only Debug (simulator) builds carry it.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: CarPlay.entitlements

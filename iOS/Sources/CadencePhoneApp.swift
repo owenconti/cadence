@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct CadencePhoneApp: App {
-    @State private var model = AppModel()
+    /// One for the app, shared by the phone's window and CarPlay.
+    @MainActor static let model = AppModel()
+    private let model = CadencePhoneApp.model
 
     var body: some Scene {
         WindowGroup {
