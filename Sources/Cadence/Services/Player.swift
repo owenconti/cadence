@@ -213,9 +213,13 @@ final class Player {
         }
     }
 
-    func previous() {
+    /// A few seconds into a song, restarts it; otherwise goes back a song.
+    func previous() { previous(always: false) }
+
+    /// `always` goes back a song regardless (swiping the phone's Now Playing).
+    func previous(always: Bool) {
         guard let index else { return }
-        if position > 3 || index == 0 {
+        if index == 0 || (position > 3 && !always) {
             seek(to: 0)
             return
         }

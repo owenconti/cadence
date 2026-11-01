@@ -1,10 +1,14 @@
 import SwiftUI
 
 /// The whole screen given to what's playing: artwork (or Up Next) over a blur
-/// of it, the scrubber and the controls. Swipe down or tap the chevron to leave.
+/// of it, the scrubber and the controls. Swipe the artwork sideways to change
+/// song; swipe down or tap the chevron to leave.
 struct PhoneNowPlaying: View {
     @Environment(AppModel.self) private var model
     @State private var showingQueue = false
+    /// How far the artwork has been dragged sideways.
+    @State private var swipe: CGFloat = 0
+    @State private var artworkWidth: CGFloat = 340
 
     var body: some View {
         if let track = model.player.current {
@@ -45,6 +49,9 @@ struct PhoneNowPlaying: View {
                         .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
                         .scaleEffect(model.player.isPlaying ? 1 : 0.9)
                         .animation(.spring(duration: 0.45, bounce: 0.25), value: model.player.isPlaying)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { artworkWidth = $0 }
+                        .offset(x: swipe)
+                        .opacity(1 - min(abs(swipe) / (artworkWidth * 1.6), 0.5))
                     Spacer(minLength: 16)
                 }
 
@@ -59,11 +66,40 @@ struct PhoneNowPlaying: View {
             .padding(.horizontal, 24)
             .background { Backdrop(artwork: track.artwork) }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 30).onEnded { drag in
-                if drag.translation.height > 110, abs(drag.translation.width) < drag.translation.height {
-                    model.toggleNowPlayingMode()
+            .gesture(DragGesture(minimumDistance: 20)
+                .onChanged { drag in
+                    let dx = drag.translation.width
+                    guard !showingQueue, abs(dx) > abs(drag.translation.height) else { return }
+                    // Nothing to go forward to: it gives a little, then springs back.
+                    swipe = dx < 0 && model.player.upNext.isEmpty ? dx * 0.25 : dx
                 }
-            })
+                .onEnded { drag in
+                    let dx = drag.translation.width, dy = drag.translation.height
+                    let flung = drag.predictedEndTranslation.width
+                    if dy > 110, abs(dx) < dy {
+                        swipe = 0
+                        model.toggleNowPlayingMode()
+                    } else if !showingQueue, abs(dx) > abs(dy), dx < -80 || flung < -240, !model.player.upNext.isEmpty {
+                        change(forward: true)
+                    } else if !showingQueue, abs(dx) > abs(dy), dx > 80 || flung > 240 {
+                        change(forward: false)
+                    } else {
+                        withAnimation(.spring(duration: 0.3)) { swipe = 0 }
+                    }
+                })
+        }
+    }
+
+    /// The artwork slides off, the song changes, and the next one's slides in
+    /// from the other side.
+    private func change(forward: Bool) {
+        let away = artworkWidth + 80
+        withAnimation(.easeIn(duration: 0.14)) {
+            swipe = forward ? -away : away
+        } completion: {
+            if forward { model.player.next() } else { model.player.previous(always: true) }
+            swipe = forward ? away : -away
+            withAnimation(.spring(duration: 0.35, bounce: 0.15)) { swipe = 0 }
         }
     }
 
