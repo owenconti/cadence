@@ -43,6 +43,9 @@ private struct AppMenuItems: View {
     var body: some View {
         Button(model.update.isReady ? "Restart to Update" : "Restart Cadence") { model.restartApp() }
             .keyboardShortcut("r", modifiers: [.command, .option])
+        if let updater = Updater.shared {
+            Button("Check for Updates…") { updater.checkNow() }
+        }
     }
 }
 

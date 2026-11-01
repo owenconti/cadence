@@ -24,8 +24,8 @@ snapshots: ## Screenshot every screen from a throwaway copy into build/check/sna
 	@open -g -n -W --env CADENCE_SNAPSHOTS=$(CURDIR)/build/check/snapshots build/check/Cadence.app
 	@ls build/check/snapshots
 
-release: ## Build a notarized copy to share: build/release/Cadence.zip
-	@scripts/release.sh
+release: ## Cut a release: BUMP=patch|minor|major or VERSION=x.y.z, NOTES=file, DRY_RUN=1
+	@VERSION_OVERRIDE="$(VERSION)" scripts/release.sh
 
 run: ## Rebuild, install and (re)launch the app (for humans; quits a running copy)
 	@scripts/run.sh

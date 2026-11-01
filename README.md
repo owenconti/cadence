@@ -12,7 +12,9 @@ make update   # rebuild and install; the running app offers Restart app
 make check    # automated update + restart check on a throwaway copy
 ```
 
-`make release` builds a copy to give to someone: signed with the Developer ID, notarized by Apple (with the notarytool login Paseo Command saved as `paseo-command-notary`) and stapled, at `build/release/Cadence.zip`. It opens on any Mac without warnings; they connect their own Apple Music account (playback needs a subscription) or use the demo library.
+**Download:** [the latest release](https://github.com/owenconti/cadence/releases/latest) (the `.dmg`; drag Cadence to Applications). It's notarized, opens normally, and updates itself. Connect your Apple Music account (playback needs a subscription) or explore the demo library.
+
+`make release BUMP=patch|minor|major NOTES=file` cuts a release, as Paseo Command does: checks, builds, signs with the Developer ID, notarizes (the `paseo-command-notary` keychain login) and staples the app and a disk image, writes the Sparkle appcast (signed with the keychain's EdDSA key), commits `Release v<version>`, pushes and publishes the GitHub release. `DRY_RUN=1` stops before committing.
 
 The app installs to `/Applications/Cadence.app`, so it opens like any other app (Spotlight, Launchpad, the Dock). `make update` swaps a new build in underneath the running app without touching it. Within a few seconds the app shows **Update ready** in the sidebar. **Restart app** (in ⌘K, from the pill, or with ⌥⌘R) relaunches into the new build. The queue, current song, position and section carry across, so music resumes after a short pause.
 

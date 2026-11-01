@@ -1,8 +1,9 @@
 import AppKit
 import Observation
 
-/// Notices when `scripts/bundle.sh` has put a newer build in place of this one,
-/// so the UI can offer Restart app, and relaunches into it on request.
+/// Notices when there's a newer build to restart into, so the UI can offer
+/// Restart app: one `scripts/bundle.sh` put in place of this one, or a release
+/// Sparkle has downloaded (`Updater`). Relaunches into it on request.
 @MainActor
 @Observable
 final class AppUpdate {
@@ -14,14 +15,15 @@ final class AppUpdate {
     @ObservationIgnored private var timer: Timer?
 
     init() {
+        Updater.shared?.onChange = { [weak self] in self?.check() }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.check() }
         }
     }
 
     private func check() {
-        guard let now = Self.stamp(), let launched else { return }
-        let ready = now > launched
+        var ready = Updater.shared?.pendingVersion != nil
+        if let now = Self.stamp(), let launched, now > launched { ready = true }
         if ready != isReady { isReady = ready }
     }
 
@@ -36,6 +38,8 @@ final class AppUpdate {
         guard !isRestarting else { return }
         isRestarting = true
         handoff.save()
+        // A downloaded release: Sparkle installs it and relaunches.
+        if Updater.shared?.installNow() == true { return }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         configuration.environment = RunMode.environment

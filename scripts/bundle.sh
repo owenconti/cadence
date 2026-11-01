@@ -7,6 +7,10 @@
 # keeps its files and shows "Update ready"; Restart app (⌘K) switches to the
 # new build.
 #
+# RELEASE=1 makes the copy people download (scripts/release.sh): it points
+# Sparkle at the GitHub feed so it updates itself, and timestamps signatures
+# for notarization. Other copies never check for updates.
+#
 # Signs with the first Apple Development or Developer ID identity in your
 # keychain. MusicKit only issues tokens to apps whose bundle ID is registered
 # with the MusicKit app service under the signing team.
@@ -32,7 +36,12 @@ if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app ]]; then
 fi
 
 swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/Cadence"
+BINDIR="$(swift build -c "$CONFIG" --show-bin-path)"
+BIN="$BINDIR/Cadence"
+# Sparkle installs an update only if it's newer by build number: the commit count.
+VERSION="$(tr -d '[:space:]' < VERSION)"
+BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+FEED="https://github.com/owenconti/cadence/releases/latest/download/appcast.xml"
 
 mkdir -p build
 STAGE="$PWD/build/.staging-$$/Cadence.app"
@@ -58,8 +67,25 @@ trap 'exit 1' INT TERM HUP
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$BIN" "$STAGE/Contents/MacOS/Cadence"
 cp Support/AppIcon/Cadence.icns "$STAGE/Contents/Resources/Cadence.icns"
-sed "s/\$(BUNDLE_ID)/$BUNDLE_ID/" Support/Info.plist > "$STAGE/Contents/Info.plist"
-codesign --force --sign "$SIGN_IDENTITY" --options runtime "$STAGE" >/dev/null
+sed -e "s/\$(BUNDLE_ID)/$BUNDLE_ID/" -e "s/\$(VERSION)/$VERSION/" -e "s/\$(BUILD)/$BUILD/" Support/Info.plist > "$STAGE/Contents/Info.plist"
+if [[ -n "${RELEASE:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :SUFeedURL string $FEED" "$STAGE/Contents/Info.plist"
+fi
+
+# Sparkle's framework, its symlinks kept (ditto), where the executable's rpath
+# looks. Signed inside out, without --deep, as Sparkle's docs sign it outside
+# Xcode; then the app.
+mkdir -p "$STAGE/Contents/Frameworks"
+ditto "$BINDIR/Sparkle.framework" "$STAGE/Contents/Frameworks/Sparkle.framework"
+sign() { codesign --force --sign "$SIGN_IDENTITY" --options runtime ${RELEASE:+--timestamp} "$@" >/dev/null 2>&1 \
+    || { echo "error: couldn't sign ${*: -1}" >&2; exit 1; }; }
+sparkle="$STAGE/Contents/Frameworks/Sparkle.framework/Versions/B"
+sign "$sparkle/XPCServices/Installer.xpc"
+sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
+sign "$sparkle/Autoupdate"
+sign "$sparkle/Updater.app"
+sign "$STAGE/Contents/Frameworks/Sparkle.framework"
+sign "$STAGE"
 
 # Swap by rename, never by overwriting files a running copy may have mapped.
 # If the second rename fails or is interrupted, cleanup puts the previous

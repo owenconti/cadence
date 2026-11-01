@@ -313,6 +313,11 @@ struct CommandPalette: View {
             })
         }
         if !model.update.isReady { list.append(restart) }
+        if let updater = Updater.shared {
+            list.append(.init(id: "app:check-updates", group: "App", title: "Check for updates",
+                              subtitle: "Cadence \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")",
+                              symbol: "arrow.down.circle", keywords: "update new version release sparkle") { updater.checkNow() })
+        }
         return list
     }
 }
