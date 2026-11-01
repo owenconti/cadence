@@ -44,10 +44,12 @@ run() {
     fi
 }
 
+# Archived unsigned: automatic signing would want a development profile, which
+# needs a registered device. The export signs it for distribution instead.
 echo "Archiving build ${BUILD}…"
 run -project iOS/CadencePhone.xcodeproj -scheme Cadence -configuration Release \
     -destination generic/platform=iOS -archivePath "$OUT/Cadence.xcarchive" \
-    CURRENT_PROJECT_VERSION="$BUILD" "${AUTH[@]}" archive
+    CURRENT_PROJECT_VERSION="$BUILD" CODE_SIGNING_ALLOWED=NO archive
 
 cat >"$OUT/ExportOptions.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
