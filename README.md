@@ -18,7 +18,7 @@ make check    # automated update + restart check on a throwaway copy
 
 The app installs to `/Applications/Cadence.app`, so it opens like any other app (Spotlight, Launchpad, the Dock). `make update` swaps a new build in underneath the running app without touching it. Within a few seconds the app shows **Update ready** in the sidebar. **Restart app** (in ⌘K, from the pill, or with ⌥⌘R) relaunches into the new build. The queue, current song, position and section carry across, so music resumes after a short pause.
 
-The build signs with the first Apple Development or Developer ID identity in your keychain, as `com.owenconti.cadence`. The app always uses the Apple ID signed into macOS, and once access is granted it connects automatically.
+The build signs with the first Developer ID (else Apple Development) identity in your keychain, as `com.owenconti.cadence`. The app always uses the Apple ID signed into macOS, and once access is granted it connects automatically.
 
 **One-time setup:** in the Apple Developer portal, go to Identifiers, register the App ID `com.owenconti.cadence`, and enable **MusicKit** on the App Services tab. MusicKit only issues tokens to registered bundle IDs.
 

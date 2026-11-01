@@ -11,7 +11,7 @@
 # Sparkle at the GitHub feed so it updates itself, and timestamps signatures
 # for notarization. Other copies never check for updates.
 #
-# Signs with the first Apple Development or Developer ID identity in your
+# Signs with the first Developer ID (else Apple Development) identity in your
 # keychain. MusicKit only issues tokens to apps whose bundle ID is registered
 # with the MusicKit app service under the signing team.
 set -euo pipefail
@@ -23,8 +23,10 @@ APP="${APP:-/Applications/Cadence.app}"
 
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
     identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
-    SIGN_IDENTITY="$(grep -o '"Apple Development: [^"]*"' <<<"$identities" | head -1 | tr -d '"' || true)"
-    [[ -z "$SIGN_IDENTITY" ]] && SIGN_IDENTITY="$(grep -o '"Developer ID Application: [^"]*"' <<<"$identities" | head -1 | tr -d '"' || true)"
+    # Developer ID first: macOS ties Apple Music access to the signature, so
+    # switching identity would make the app ask again (or fail the artwork audit).
+    SIGN_IDENTITY="$(grep -o '"Developer ID Application: [^"]*"' <<<"$identities" | head -1 | tr -d '"' || true)"
+    [[ -z "$SIGN_IDENTITY" ]] && SIGN_IDENTITY="$(grep -o '"Apple Development: [^"]*"' <<<"$identities" | head -1 | tr -d '"' || true)"
     if [[ -z "$SIGN_IDENTITY" ]]; then
         SIGN_IDENTITY="-"
         echo "warning: no signing identity found; ad-hoc signing (Apple Music won't connect, demo library still works)" >&2
