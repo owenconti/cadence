@@ -12,6 +12,8 @@ make update   # rebuild and install; the running app offers Restart app
 make check    # automated update + restart check on a throwaway copy
 ```
 
+`make release` builds a copy to give to someone: signed with the Developer ID, notarized by Apple (with the notarytool login Paseo Command saved as `paseo-command-notary`) and stapled, at `build/release/Cadence.zip`. It opens on any Mac without warnings; they connect their own Apple Music account (playback needs a subscription) or use the demo library.
+
 The app installs to `/Applications/Cadence.app`, so it opens like any other app (Spotlight, Launchpad, the Dock). `make update` swaps a new build in underneath the running app without touching it. Within a few seconds the app shows **Update ready** in the sidebar. **Restart app** (in ⌘K, from the pill, or with ⌥⌘R) relaunches into the new build. The queue, current song, position and section carry across, so music resumes after a short pause.
 
 The build signs with the first Apple Development or Developer ID identity in your keychain, as `com.owenconti.cadence`. The app always uses the Apple ID signed into macOS, and once access is granted it connects automatically.

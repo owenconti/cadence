@@ -1,7 +1,7 @@
 # Cadence tasks. `make` with no target lists them.
 
 .DEFAULT_GOAL := help
-.PHONY: help update check perf snapshots artwork run icon clean
+.PHONY: help update check perf snapshots artwork release run icon clean
 
 help: ## List tasks
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
@@ -23,6 +23,9 @@ snapshots: ## Screenshot every screen from a throwaway copy into build/check/sna
 	@rm -rf build/check/snapshots
 	@open -g -n -W --env CADENCE_SNAPSHOTS=$(CURDIR)/build/check/snapshots build/check/Cadence.app
 	@ls build/check/snapshots
+
+release: ## Build a notarized copy to share: build/release/Cadence.zip
+	@scripts/release.sh
 
 run: ## Rebuild, install and (re)launch the app (for humans; quits a running copy)
 	@scripts/run.sh
