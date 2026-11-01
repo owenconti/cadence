@@ -1,5 +1,5 @@
-# Cadence for iPhone, for Owen's own phone only (no App Store, no TestFlight).
-# `make phone` generates CadencePhone.xcodeproj from this file (it isn't
+# Cadence for iPhone, for Owen's own phone only: TestFlight internal testing,
+# never the App Store. `make testflight` uploads a build; `make phone` generates CadencePhone.xcodeproj from this file (it isn't
 # committed), builds, and installs on the connected iPhone; `make phone-sim`
 # runs it in the simulator on the demo library.
 #
@@ -42,6 +42,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
+        # Only Apple's own encryption (HTTPS), so TestFlight skips the export question.
+        ITSAppUsesNonExemptEncryption: false
         NSAppleMusicUsageDescription: Cadence uses Apple Music to show your library, recommendations, and to play music.
         UIBackgroundModes: [audio]
         UILaunchScreen:

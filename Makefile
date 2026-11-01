@@ -1,7 +1,7 @@
 # Cadence tasks. `make` with no target lists them.
 
 .DEFAULT_GOAL := help
-.PHONY: help update check perf snapshots artwork release run icon phone phone-snapshots clean
+.PHONY: help update check perf snapshots artwork release run icon phone phone-snapshots testflight clean
 
 help: ## List tasks
 	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
@@ -33,7 +33,10 @@ run: ## Rebuild, install and (re)launch the app (for humans; quits a running cop
 icon: ## Re-render the app icon from Support/AppIcon/render.swift
 	@swift Support/AppIcon/render.swift
 
-phone: ## Build Cadence for iPhone and install it on the connected iPhone
+testflight: ## Upload Cadence for iPhone to TestFlight; the phone installs it from there
+	@scripts/testflight.sh
+
+phone: ## Build Cadence for iPhone and install it on a plugged-in iPhone (TestFlight is the usual way)
 	@scripts/phone.sh install
 
 phone-snapshots: ## Screenshot every iPhone screen in the simulator into build/phone/snapshots

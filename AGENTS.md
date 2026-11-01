@@ -17,7 +17,7 @@ Never quit, relaunch or open the user's app (`/Applications/Cadence.app`), and d
 
 ## iPhone
 
-`iOS/` builds Cadence for the user's own iPhone (see README.md). After changing shared code (Models, Services, Components, `AppModel`), also build the phone app: `make phone-snapshots` builds it, runs a screenshot tour in the simulator on the demo library and writes `build/phone/snapshots/`; look at them for phone UI changes. `make phone` installs on the connected iPhone, only when the user asks for it or a phone change is done; it fails with what to do if no phone is connected. There's no Update ready on the phone: installing replaces the app. The command palette doesn't exist on the phone; Search is its tab.
+`iOS/` builds Cadence for the user's own iPhone (see README.md). After changing shared code (Models, Services, Components, `AppModel`), also build the phone app: `make phone-snapshots` builds it, runs a screenshot tour in the simulator on the demo library and writes `build/phone/snapshots/`; look at them for phone UI changes. When a phone change is done, commit and push, then run `make testflight`: it uploads a build to TestFlight, and the phone's TestFlight app offers it within about 15 minutes (tell the user to update there). It fails with what's missing if the one-time setup in README.md isn't done. `make phone` installs on a plugged-in iPhone instead; use it only if the user asks. There's no Update ready on the phone. The command palette doesn't exist on the phone; Search is its tab.
 
 ## Releases
 

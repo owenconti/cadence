@@ -24,14 +24,21 @@ The build signs with the first Apple Development or Developer ID identity in you
 
 ## iPhone
 
-`iOS/` is Cadence for iPhone, for Owen's own phone only (no App Store or TestFlight). It compiles the Mac app's models, services and components directly (Mac-only code is behind `#if os(macOS)`), plus phone screens in `iOS/Sources`: Discover, Playlists, Artists and Search tabs, playlist, album and artist pages, a mini player and full-screen Now Playing. `iOS/project.yml` generates the Xcode project with XcodeGen (`brew install xcodegen`).
+`iOS/` is Cadence for iPhone, for Owen's own phone only: it's installed through TestFlight's internal testing and never goes to the App Store. It compiles the Mac app's models, services and components directly (Mac-only code is behind `#if os(macOS)`), plus phone screens in `iOS/Sources`: Discover, Playlists, Artists and Search tabs, playlist, album and artist pages, a mini player and full-screen Now Playing. `iOS/project.yml` generates the Xcode project with XcodeGen (`brew install xcodegen`).
 
 ```sh
-make phone            # build and install on the connected iPhone
+make testflight       # build and upload to TestFlight; the phone's TestFlight app installs it
 make phone-snapshots  # screenshot every screen in the simulator (demo library) into build/phone/snapshots
+make phone            # alternative: install directly on a plugged-in iPhone
 ```
 
-**One-time setup for installing:** add the Apple ID for team HBLWB8LVKC in Xcode › Settings › Accounts (automatic signing then makes the certificate and profile, and registers the phone), plug the iPhone in, tap Trust, and turn on Developer Mode in Settings › Privacy & Security. Builds signed this way run for a year.
+**One-time setup for TestFlight:**
+
+1. An App Store Connect API key (Users and Access › Integrations › App Store Connect API, App Manager access). Its `.p8` goes in `~/.appstoreconnect/private_keys/`, and its IDs in `~/.appstoreconnect/cadence.env` as `ASC_KEY_ID=…` and `ASC_ISSUER_ID=…`. It signs (Xcode's automatic signing makes the distribution certificate and profile) and uploads.
+2. The app record in App Store Connect (Apps › + › New App: iOS, bundle ID `com.owenconti.cadence`). Apple's API can't create it.
+3. An internal testing group in the app's TestFlight tab with Owen in it, and the TestFlight app on the phone.
+
+Each upload's build number is the commit count, so every upload needs a new commit. TestFlight builds expire after 90 days. `make phone` instead needs the Apple ID in Xcode › Settings › Accounts, the phone plugged in and trusted, and Developer Mode on.
 
 ## Layout
 
