@@ -11,8 +11,16 @@ enum Theme {
     static let tertiary = Color.white.opacity(0.36)
     static let accent = Color(hex: 0xFF6A55)
 
+    #if os(macOS)
     /// Top inset that clears the window's traffic-light buttons.
     static let titlebarInset: CGFloat = 46
+    /// Leading inset that clears them, when nothing else does.
+    static let windowButtonsInset: CGFloat = 84
+    #else
+    /// The iPad's status bar is outside the safe area already.
+    static let titlebarInset: CGFloat = 12
+    static let windowButtonsInset: CGFloat = 28
+    #endif
 }
 
 extension Color {

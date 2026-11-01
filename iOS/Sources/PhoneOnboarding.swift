@@ -34,7 +34,7 @@ struct PhoneOnboarding: View {
                 .buttonStyle(PillButtonStyle())
                 .disabled(model.access == .connecting)
 
-                Text("Uses the Apple ID signed into this iPhone.")
+                Text("Uses the Apple ID signed into this \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone").")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.tertiary)
 

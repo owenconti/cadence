@@ -1,4 +1,4 @@
-# Cadence for iPhone, for Owen's own phone only: TestFlight internal testing,
+# Cadence for iPhone and iPad, for Owen's own devices only: TestFlight internal testing,
 # never the App Store. `make testflight` uploads a build; `make phone` generates CadencePhone.xcodeproj from this file (it isn't
 # committed), builds, and installs on the connected iPhone; `make phone-sim`
 # runs it in the simulator on the demo library.
@@ -33,6 +33,12 @@ targets:
       - ../Sources/Cadence/App/PaletteModel.swift
       - ../Sources/Cadence/App/RunMode.swift
       - ../Sources/Cadence/Views/SplashView.swift
+      # The Mac's layout, for a full-width iPad.
+      - ../Sources/Cadence/Views/RootView.swift
+      - ../Sources/Cadence/Views/Sidebar.swift
+      - ../Sources/Cadence/Views/DiscoverView.swift
+      - ../Sources/Cadence/Views/PlaylistsView.swift
+      - ../Sources/Cadence/Views/ArtistsView.swift
       - ../Sources/Cadence/Views/NowPanel.swift
       - ../Sources/Cadence/Views/NowPlayingView.swift
     info:
@@ -58,11 +64,16 @@ targets:
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIUserInterfaceStyle: Dark
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.owenconti.cadence
         PRODUCT_NAME: Cadence
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: false
       configs:

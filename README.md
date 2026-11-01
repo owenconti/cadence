@@ -22,13 +22,13 @@ The build signs with the first Developer ID (else Apple Development) identity in
 
 **One-time setup:** in the Apple Developer portal, go to Identifiers, register the App ID `com.owenconti.cadence`, and enable **MusicKit** on the App Services tab. MusicKit only issues tokens to registered bundle IDs.
 
-## iPhone
+## iPhone and iPad
 
-`iOS/` is Cadence for iPhone, for Owen's own phone only: it's installed through TestFlight's internal testing and never goes to the App Store. It compiles the Mac app's models, services and components directly (Mac-only code is behind `#if os(macOS)`), plus phone screens in `iOS/Sources`: Discover, Playlists, Artists and Search tabs, playlist, album and artist pages, a mini player and full-screen Now Playing. `iOS/project.yml` generates the Xcode project with XcodeGen (`brew install xcodegen`).
+`iOS/` is Cadence for iPhone and iPad, for Owen's own devices only: it's installed through TestFlight's internal testing and never goes to the App Store. It compiles the Mac app's models, services and components directly (Mac-only code is behind `#if os(macOS)`), plus phone screens in `iOS/Sources`: Discover, Playlists, Artists and Search tabs, playlist, album and artist pages, a mini player and full-screen Now Playing (swipe the artwork to change song). A full-width iPad gets the Mac's layout instead (`TabletShell`): in landscape the three columns, in portrait the sidebar and pages with the mini player; Search fills the page column in place of ⌘K. Narrow Split View sizes get the phone's. `iOS/project.yml` generates the Xcode project with XcodeGen (`brew install xcodegen`).
 
 ```sh
 make testflight       # build and upload to TestFlight; the phone's TestFlight app installs it
-make phone-snapshots  # screenshot every screen in the simulator (demo library) into build/phone/snapshots
+make phone-snapshots  # screenshot every screen on the iPhone and iPad simulators (demo library) into build/phone/snapshots/{iphone,ipad}
 make phone            # alternative: install directly on a plugged-in iPhone
 ```
 

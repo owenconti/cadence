@@ -26,7 +26,7 @@ struct PageScroll<Content: View>: View {
                 .background(Circle().fill(.ultraThinMaterial))
                 .help("Back (⌘[)")
                 // Clear of the window buttons when there's no sidebar.
-                .padding(.leading, model.sidebarHidden ? 84 : 28)
+                .padding(.leading, model.sidebarHidden ? Theme.windowButtonsInset : 28)
                 .padding(.top, 12)
             }
         }

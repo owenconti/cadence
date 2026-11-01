@@ -1,5 +1,6 @@
 import SwiftUI
 
+#if os(macOS)
 struct RootView: View {
     @Environment(AppModel.self) private var model
 
@@ -26,6 +27,7 @@ struct RootView: View {
         .frame(minWidth: 1080, minHeight: 680)
     }
 }
+#endif
 
 struct MainShell: View {
     @Environment(AppModel.self) private var model
@@ -81,7 +83,9 @@ struct ResizeHandle: View {
             .frame(width: 10)
             .contentShape(Rectangle())
             .offset(x: edge == .trailing ? 5 : -5)
+            #if os(macOS)
             .pointerStyle(.columnResize)
+            #endif
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.12), value: hovering)
             .gesture(
@@ -109,8 +113,17 @@ struct ContentArea: View {
     var body: some View {
         let route = model.route
         ZStack {
+            #if os(iOS)
+            // The iPad has no ⌘K palette; search fills the page instead.
+            if model.palette.isPresented {
+                PhoneSearch()
+            } else {
+                page(for: route).id(route)
+            }
+            #else
             page(for: route)
                 .id(route)
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .id(model.providerGeneration)

@@ -50,6 +50,36 @@ enum PhoneSnapshotTour {
             model.toggleNowPlayingMode()
             await shot("9-now-playing")
             model.toggleNowPlayingMode()
+
+            // The iPad in landscape: the Mac's three columns. iPadOS won't let
+            // an app rotate itself, so the layout is drawn in a window of
+            // landscape size instead.
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                model.select(.discover)
+                await landscape("10-landscape-discover", model)
+                if let first = playlists?.first { model.navigate(.playlist(first)) }
+                await landscape("11-landscape-playlist", model)
+                model.palette.present()
+                model.palette.query = "glass"
+                await landscape("12-landscape-search", model, wait: 1.6)
+                model.palette.dismiss()
+            }
+            @MainActor func landscape(_ name: String, _ model: AppModel, wait: Double = 1.2) async {
+                guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: 1210, height: 834)
+                let root = ZStack { AmbientBackground(); TabletShell() }
+                    .environment(model)
+                    .preferredColorScheme(.dark)
+                window.rootViewController = UIHostingController(rootView: root)
+                window.isHidden = false
+                try? await Task.sleep(for: .seconds(wait))
+                let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                try? image.pngData()?.write(to: out.appendingPathComponent("\(name).png"))
+                window.isHidden = true
+            }
             FileManager.default.createFile(atPath: out.appendingPathComponent(".done").path, contents: nil)
             exit(0)
         }

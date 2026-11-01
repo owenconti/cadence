@@ -47,7 +47,7 @@ struct NowPlayingView: View {
                 .buttonStyle(IconButtonStyle(size: 30))
                 .background(Circle().fill(.ultraThinMaterial))
                 .help("Leave Now Playing (Esc)")
-                .padding(.leading, 84)
+                .padding(.leading, Theme.windowButtonsInset)
                 .padding(.top, 10)
             }
         }

@@ -48,16 +48,20 @@ struct Sidebar: View {
             .scrollIndicators(.never)
 
             Spacer(minLength: 0)
+            #if os(macOS)
             if model.update.isReady {
                 UpdateReady()
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
+            #endif
             SourceBadge()
         }
         .frame(maxWidth: .infinity)
+        #if os(macOS)
         .animation(.smooth(duration: 0.3), value: model.update.isReady)
+        #endif
         .background(Theme.panel)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.hairline).frame(width: 1) }
     }
@@ -159,6 +163,7 @@ private struct PinnedRow: View {
     }
 }
 
+#if os(macOS)
 /// Shown once a newer build is on disk; restarting loads it.
 private struct UpdateReady: View {
     @Environment(AppModel.self) private var model
@@ -191,6 +196,7 @@ private struct UpdateReady: View {
         .help("A newer build is ready. Restart to load it; music picks up where it was.")
     }
 }
+#endif
 
 private struct SourceBadge: View {
     @Environment(AppModel.self) private var model
