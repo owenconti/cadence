@@ -44,7 +44,7 @@ run() {
     fi
 }
 
-echo "Archiving build $BUILD…"
+echo "Archiving build ${BUILD}…"
 run -project iOS/CadencePhone.xcodeproj -scheme Cadence -configuration Release \
     -destination generic/platform=iOS -archivePath "$OUT/Cadence.xcarchive" \
     CURRENT_PROJECT_VERSION="$BUILD" "${AUTH[@]}" archive
