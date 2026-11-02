@@ -60,6 +60,7 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 - `Services/MusicKitProvider.swift`: live library and catalog (recently played, personal recommendations, charts, search)
 - `Services/DemoProvider.swift`: offline catalog
 - `Services/Player.swift`: the queue and what should play; commands reach the engine one at a time, in order
+- `Services/Tempo.swift`: the playing song's BPM (Mac), estimated once from its 30-second preview (Apple Music's stream can't be read) and kept in Application Support's `tempo.json`
 - `Services/LiveEngine.swift`: what plays it: Apple Music (`MusicKitEngine`) or `SimulatedEngine` for the demo library, which `make check` also slows down or makes refuse songs
 - `App/AppUpdate.swift`: notices a newer build on disk, and Restart app with its playback handoff
 - `App/RunMode.swift`, `App/CheckHooks.swift`: throwaway copies for `make check` and `make snapshots`

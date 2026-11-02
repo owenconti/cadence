@@ -33,6 +33,8 @@ final class AppModel {
     let palette = PaletteModel()
     #if os(macOS)
     let update = AppUpdate()
+    /// The playing song's BPM, from its preview clip; shown in the Now panel.
+    let tempo = TempoStore()
     #endif
     /// What's playing, on disk so it survives quitting, crashes and restarts.
     @ObservationIgnored private let playbackStore = PlaybackStore()
@@ -126,7 +128,13 @@ final class AppModel {
             return
         }
         saveTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { _ = self?.savePlayback() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                _ = self.savePlayback()
+                #if os(macOS)
+                if let track = self.player.current { self.tempo.measure(track) }
+                #endif
+            }
         }
         #if os(macOS)
         handoff = Handoff.take()

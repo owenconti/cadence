@@ -82,7 +82,20 @@ struct NowPanel: View {
                     .lineLimit(1)
                     .help("Go to \(track.albumTitle)")
             }
+            #if os(macOS)
+            if let bpm = model.tempo.bpm[track.id] {
+                Text("\(Int(bpm.rounded())) BPM")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Theme.tertiary)
+                    .padding(.top, 3)
+                    .help("Tempo, estimated from the song's preview")
+                    .transition(.opacity)
+            }
+            #endif
         }
+        #if os(macOS)
+        .animation(.smooth(duration: 0.3), value: model.tempo.bpm[track.id])
+        #endif
     }
 }
 
