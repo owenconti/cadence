@@ -76,8 +76,5 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: false
-      configs:
-        # CarPlay audio needs an entitlement Apple grants on request; until it
-        # does, only Debug (simulator) builds carry it.
-        Debug:
-          CODE_SIGN_ENTITLEMENTS: CarPlay.entitlements
+        # CarPlay audio, which Apple granted on request.
+        CODE_SIGN_ENTITLEMENTS: CarPlay.entitlements

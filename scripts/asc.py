@@ -142,7 +142,9 @@ def ensure_profile(cert_id):
     profiles = api("GET", "/v1/profiles?filter%5Bname%5D=" + urllib.parse.quote(PROFILE_NAME) + "&include=certificates")
     for profile in profiles["data"]:
         certs = [c["id"] for c in profile["relationships"]["certificates"]["data"]]
-        if profile["attributes"]["profileState"] == "ACTIVE" and cert_id in certs:
+        # A profile made before CarPlay Audio was enabled on the App ID lacks it.
+        carplay = b"com.apple.developer.carplay-audio" in base64.b64decode(profile["attributes"]["profileContent"])
+        if profile["attributes"]["profileState"] == "ACTIVE" and cert_id in certs and carplay:
             return profile["attributes"]["profileContent"]
         api("DELETE", "/v1/profiles/" + profile["id"])
     bundle = api("GET", "/v1/bundleIds?filter%5Bidentifier%5D=" + BUNDLE_ID)["data"]

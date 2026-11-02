@@ -49,6 +49,8 @@ fi
 
 echo "Signing…"
 eval "$(python3 -I scripts/asc.py signing)"   # KEYCHAIN, IDENTITY, PROFILE
+security cms -D -i "$PROFILE" | grep -q com.apple.developer.carplay-audio \
+    || die "the App Store profile doesn't grant CarPlay: in the Apple Developer portal, open Identifiers › com.owenconti.cadence › Additional Capabilities, tick CarPlay Audio and save"
 
 PAYLOAD="$OUT/ipa/Payload"
 APP="$PAYLOAD/Cadence.app"
@@ -65,6 +67,7 @@ cat >"$OUT/entitlements.plist" <<EOF
     <key>com.apple.developer.team-identifier</key><string>$TEAM</string>
     <key>get-task-allow</key><false/>
     <key>beta-reports-active</key><true/>
+    <key>com.apple.developer.carplay-audio</key><true/>
 </dict>
 </plist>
 EOF
