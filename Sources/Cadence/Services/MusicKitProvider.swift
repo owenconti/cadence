@@ -4,10 +4,12 @@ import MusicKit
 /// Live backend: the user's Apple Music library plus the catalog, via MusicKit.
 enum ProviderError: LocalizedError {
     case tooLong(Int)
+    case notEditable
 
     var errorDescription: String? {
         switch self {
         case .tooLong(let count): "Stopped at \(count) items; that's longer than Cadence shows."
+        case .notEditable: "Apple Music doesn't let Cadence change that playlist."
         }
     }
 }
@@ -111,6 +113,87 @@ final class MusicKitProvider: MusicProvider {
             if case .playlist(let playlist) = item { playlist.name } else { nil }
         }
     }
+
+    // MARK: Editing playlists
+
+    /// The Apple Music API's ID for each playlist the user can change, by
+    /// MusicKit's ID. On the Mac, MusicKit gives library playlists local IDs
+    /// and can't edit them, so changes go through the API instead, matched
+    /// by name (playlists sharing a name are left out, as they can't be told
+    /// apart).
+    private var apiPlaylistIDs: [String: String] = [:]
+
+    func editablePlaylistIDs(in playlists: [PlaylistItem]) async -> Set<String> {
+        guard let remote = try? await apiPlaylists() else { return Set(apiPlaylistIDs.keys) }
+        let remoteByName = Dictionary(grouping: remote, by: \.name)
+        let localByName = Dictionary(grouping: playlists, by: \.name)
+        var ids: [String: String] = [:]
+        for playlist in playlists {
+            guard localByName[playlist.name]?.count == 1, let match = remoteByName[playlist.name],
+                  match.count == 1, match[0].canEdit else { continue }
+            ids[playlist.id] = match[0].id
+        }
+        apiPlaylistIDs = ids
+        return Set(ids.keys)
+    }
+
+    func add(_ track: TrackItem, to playlist: PlaylistItem) async throws {
+        #if os(iOS)
+        guard let song = track.song, let target = playlist.playlist else { throw ProviderError.notEditable }
+        try await MusicLibrary.shared.add(song, to: target)
+        #else
+        guard let target = apiPlaylistIDs[playlist.id] else { throw ProviderError.notEditable }
+        let song = await apiSongReference(track)
+        var request = URLRequest(url: URL(string: "https://api.music.apple.com/v1/me/library/playlists/\(target)/tracks")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["data": [["id": song.id, "type": song.type]]])
+        _ = try await MusicDataRequest(urlRequest: request).response()
+        #endif
+    }
+
+    private struct APIPlaylistPage: Decodable {
+        struct Item: Decodable {
+            struct Attributes: Decodable {
+                let name: String
+                let canEdit: Bool?
+            }
+            let id: String
+            let attributes: Attributes?
+        }
+        let data: [Item]
+        let next: String?
+    }
+
+    /// Every library playlist, as the Apple Music API lists them.
+    private func apiPlaylists() async throws -> [(id: String, name: String, canEdit: Bool)] {
+        var found: [(id: String, name: String, canEdit: Bool)] = []
+        var path: String? = "/v1/me/library/playlists?limit=100"
+        while let next = path, let url = URL(string: "https://api.music.apple.com" + next) {
+            guard found.count < 10_000 else { throw ProviderError.tooLong(found.count) }
+            let data = try await MusicDataRequest(urlRequest: URLRequest(url: url)).response().data
+            let page = try JSONDecoder().decode(APIPlaylistPage.self, from: data)
+            found += page.data.compactMap { item in
+                item.attributes.map { (item.id, $0.name, $0.canEdit ?? false) }
+            }
+            path = page.next
+        }
+        return found
+    }
+
+    /// How the API names a song: a library song by its "i." ID, anything else
+    /// as a catalog song.
+    private func apiSongReference(_ track: TrackItem) async -> (id: String, type: String) {
+        if track.id.hasPrefix("i.") { return (track.id, "library-songs") }
+        // A song in a playlist has a local numeric ID; the library knows it
+        // under its "i." one.
+        if let song = await Self.librarySong(id: track.id), song.id.rawValue.hasPrefix("i.") {
+            return (song.id.rawValue, "library-songs")
+        }
+        return (track.id, "songs")
+    }
+
+    // MARK: Lookups
 
     func album(for track: TrackItem) async -> AlbumItem? {
         // A song in a playlist often isn't on an album saved to the library;

@@ -20,6 +20,7 @@ struct PhoneShell: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
+                ToastView()
                 MiniPlayer()
                 PhoneTabBar()
             }

@@ -20,4 +20,9 @@ protocol MusicProvider: AnyObject {
     func album(for track: TrackItem) async -> AlbumItem?
     /// Names of playlists recently played anywhere, newest first.
     func recentlyPlayedPlaylistNames() async -> [String]
+    /// Which of `playlists` songs can be added to: the user's own, not
+    /// smart playlists or ones followed from someone else.
+    func editablePlaylistIDs(in playlists: [PlaylistItem]) async -> Set<String>
+    /// Adds a song to the end of one of the user's playlists.
+    func add(_ track: TrackItem, to playlist: PlaylistItem) async throws
 }

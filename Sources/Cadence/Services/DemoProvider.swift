@@ -7,7 +7,7 @@ final class DemoProvider: MusicProvider {
     let displayName = "Demo library"
     let isLive = false
 
-    private let library = DemoLibrary()
+    private var library = DemoLibrary()
     /// Added to every load, so the snapshot tour can catch loading states.
     static var extraLatency: Duration = .zero
 
@@ -69,6 +69,18 @@ final class DemoProvider: MusicProvider {
     }
 
     func recentlyPlayedPlaylistNames() async -> [String] { [] }
+
+    func editablePlaylistIDs(in playlists: [PlaylistItem]) async -> Set<String> {
+        Set(playlists.map(\.id))
+    }
+
+    func add(_ track: TrackItem, to playlist: PlaylistItem) async throws {
+        try await pause(150)
+        library.playlistTracks[playlist.id, default: []].append(track)
+        if let i = library.playlists.firstIndex(of: playlist) {
+            library.playlists[i].trackCount = library.playlistTracks[playlist.id]?.count
+        }
+    }
 
     func album(for track: TrackItem) async -> AlbumItem? {
         library.albums.first { $0.id == track.albumID }

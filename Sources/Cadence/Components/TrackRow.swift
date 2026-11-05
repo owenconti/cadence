@@ -140,6 +140,14 @@ struct TrackMenu: View {
     var body: some View {
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { model.player.playNext(track) }
         Button("Add to Queue", systemImage: "text.append") { model.player.addToQueue(track) }
+        let playlists = model.addablePlaylists
+        if !playlists.isEmpty {
+            Menu("Add to Playlist", systemImage: "text.badge.plus") {
+                ForEach(playlists) { playlist in
+                    Button(playlist.name) { model.add(track, to: playlist) }
+                }
+            }
+        }
         Divider()
         Button("Go to Artist", systemImage: "person") { model.openArtist(id: track.artistID, name: track.artistName) }
         if !track.albumTitle.isEmpty {

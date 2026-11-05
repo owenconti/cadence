@@ -8,6 +8,13 @@ import Observation
 import os
 import SwiftUI
 
+/// A short message over the page, such as a song added to a playlist.
+struct Toast: Equatable {
+    let id = UUID()
+    var text: String
+    var symbol: String
+}
+
 enum AccessState: Equatable {
     case idle
     case connecting
@@ -77,6 +84,14 @@ final class AppModel {
     private(set) var playlistMosaics: [String: ArtworkSource] = [:]
     /// Playlists whose songs couldn't be counted; Largest puts them last.
     private(set) var uncountedPlaylists: Set<String> = []
+    /// The playlists songs can be added to (the user's own), by ID.
+    private(set) var editablePlaylistIDs: Set<String> = []
+    /// How many times songs were added to each playlist, by ID, so an open
+    /// playlist page reloads to show them.
+    private(set) var playlistEdits: [String: Int] = [:]
+    /// A short confirmation (or problem) shown over the page for a few seconds.
+    private(set) var toast: Toast?
+    @ObservationIgnored private var toastClear: Task<Void, Never>?
     @ObservationIgnored private var countTask: Task<Void, Never>?
     @ObservationIgnored private var countedSizes = false
     /// Discover's feed, loaded behind the splash and kept until the library reloads.
@@ -420,13 +435,71 @@ final class AppModel {
         await loadPlaylistOrder(recount: recount)
     }
 
-    /// What the Recent and Largest sorts need.
+    /// What the Recent and Largest sorts need, and which playlists can take songs.
     private func loadPlaylistOrder(recount: Bool = false) async {
         let provider = self.provider
+        async let editable = provider.editablePlaylistIDs(in: playlists)
         let names = await provider.recentlyPlayedPlaylistNames()
         guard self.provider === provider else { return }
         recentPlaylistNames = names
         countPlaylistSizes(recount: recount)
+        let ids = await editable
+        guard self.provider === provider else { return }
+        editablePlaylistIDs = ids
+    }
+
+    /// The playlists a song can be added to, A–Z.
+    var addablePlaylists: [PlaylistItem] {
+        sortedPlaylists(by: .name).filter { editablePlaylistIDs.contains($0.id) }
+    }
+
+    /// Adds a song to the end of one of the user's playlists, and says so.
+    func add(_ track: TrackItem, to playlist: PlaylistItem) {
+        let provider = self.provider
+        Task {
+            do {
+                try await provider.add(track, to: playlist)
+            } catch {
+                Self.log.error("couldn't add \(track.title, privacy: .public) to a playlist: \(error.localizedDescription, privacy: .public)")
+                guard provider === self.provider else { return }
+                show(Toast(text: "Couldn't add “\(track.title)” to \(playlist.name): \(error.localizedDescription)",
+                           symbol: "exclamationmark.triangle.fill"))
+                return
+            }
+            guard provider === self.provider else { return }
+            show(Toast(text: "Added “\(track.title)” to \(playlist.name)", symbol: "checkmark.circle.fill"))
+            await playlistChanged(playlist)
+        }
+    }
+
+    /// After a song is added: the open page, the song count and the cover
+    /// catch up. Apple Music's library can take a few seconds to list the
+    /// song, so it's looked at again shortly after.
+    private func playlistChanged(_ playlist: PlaylistItem) async {
+        let provider = self.provider
+        for delay in provider.isLive ? [0, 4] : [0] {
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard provider === self.provider else { return }
+            playlistEdits[playlist.id, default: 0] += 1
+            guard let tracks = try? await provider.tracks(in: playlist), provider === self.provider else { continue }
+            if let mosaic = ArtworkSource.mosaic(of: tracks) { playlistMosaics[playlist.id] = mosaic }
+            if playlist.trackCount == nil {
+                playlistSizes[playlist.id] = tracks.count
+                UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
+            }
+        }
+        // The demo library counts its own songs.
+        if !provider.isLive { await refreshPlaylists() }
+    }
+
+    func show(_ toast: Toast) {
+        self.toast = toast
+        toastClear?.cancel()
+        toastClear = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
     }
 
     /// The Playlists page's order.
@@ -519,6 +592,8 @@ final class AppModel {
         countedSizes = false
         uncountedPlaylists = []
         playlistMosaics = [:]
+        editablePlaylistIDs = []
+        playlistEdits = [:]
     }
 
     // MARK: Layout
@@ -662,11 +737,12 @@ final class AppModel {
                 case []: palette.runSelection()
                 case .command where entry?.playNext != nil: palette.runSelection(.playNext)
                 case .option where entry?.addToQueue != nil: palette.runSelection(.addToQueue)
+                case .shift where entry?.track != nil && !addablePlaylists.isEmpty: palette.runSelection(.addToPlaylist)
                 case .option: palette.runSelection()
                 default: return false
                 }
                 return true
-            case 53: palette.dismiss(); return true
+            case 53: palette.back(); return true
             default: return false
             }
         }

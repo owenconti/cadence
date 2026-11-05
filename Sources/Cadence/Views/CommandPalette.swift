@@ -20,7 +20,8 @@ struct CommandPalette: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Theme.secondary)
-                    PaletteSearchField(text: $palette.query, placeholder: "Songs, artists, playlists, or a command…")
+                    PaletteSearchField(text: $palette.query, placeholder: palette.addingToPlaylist.map { "Add “\($0.title)” to a playlist…" }
+                                       ?? "Songs, artists, playlists, or a command…")
                     if searching { ProgressView().controlSize(.small) }
                 }
                 .padding(.horizontal, 20)
@@ -32,12 +33,17 @@ struct CommandPalette: View {
 
                 HStack(spacing: 16) {
                     hint("↑↓", "navigate")
-                    hint("↩", "open")
+                    if palette.addingToPlaylist != nil {
+                        hint("↩", "add")
+                    } else {
+                        hint("↩", "open")
+                    }
                     if palette.entries.indices.contains(palette.selection), palette.entries[palette.selection].playNext != nil {
                         hint("⌘↩", "play next")
                         hint("⌥↩", "add to queue")
+                        if !model.addablePlaylists.isEmpty { hint("⇧↩", "add to playlist") }
                     }
-                    hint("esc", "close")
+                    hint("esc", palette.addingToPlaylist != nil ? "back" : "close")
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -69,6 +75,7 @@ struct CommandPalette: View {
                         }
                         PaletteRow(entry: entry, selected: i == palette.selection)
                             .id(entry.id)
+                            .contextMenu { if let track = entry.track { TrackMenu(track: track) } }
                             .onTapGesture {
                                 palette.selection = i
                                 palette.runSelection()
@@ -76,7 +83,11 @@ struct CommandPalette: View {
                             .onHover { if $0 { palette.selection = i } }
                     }
                     if palette.entries.isEmpty && !searching {
-                        EmptyNote(symbol: "magnifyingglass", title: "No results for “\(palette.query)”")
+                        if palette.addingToPlaylist != nil {
+                            EmptyNote(symbol: "music.note.list", title: palette.query.isEmpty ? "No playlists to add to" : "No playlists match “\(palette.query)”")
+                        } else {
+                            EmptyNote(symbol: "magnifyingglass", title: "No results for “\(palette.query)”")
+                        }
                     }
                 }
                 .padding(8)
@@ -111,6 +122,7 @@ struct CommandPalette: View {
                 "\(model.nowPlayingMode)", "\(model.stack.count)", "\(model.update.isReady)", "\(model.route)",
                 "\(model.playlistSort)", "\(model.showAllPopular)", "\(model.popularSongCount)",
                 "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.phase)", "\(model.access)",
+                model.palette.addingToPlaylist?.id ?? "", "\(model.editablePlaylistIDs.count)",
                 // Names too: a renamed or replaced playlist, same count.
                 model.playlists.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
             .joined(separator: "|")
@@ -122,7 +134,19 @@ struct CommandPalette: View {
         let palette = model.palette
         let selected = palette.entries.indices.contains(palette.selection) ? palette.entries[palette.selection].id : nil
         let query = palette.query.trimmingCharacters(in: .whitespaces)
-        var entries = commands.filter { $0.matches(query) }
+        var entries: [PaletteModel.Entry]
+        if let track = palette.addingToPlaylist {
+            entries = model.addablePlaylists.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }.map { playlist in
+                .init(id: "add:\(playlist.id)", group: "Add “\(track.title)” to", title: playlist.name,
+                      subtitle: model.size(of: playlist).map { "\($0) songs" }, artwork: model.artwork(for: playlist)) {
+                    model.add(track, to: playlist)
+                }
+            }
+            palette.entries = entries
+            palette.selection = resetSelection ? 0 : min(palette.selection, max(entries.count - 1, 0))
+            return
+        }
+        entries = commands.filter { $0.matches(query) }
         let playlistHits = model.playlists
             .filter { !query.isEmpty && $0.name.localizedCaseInsensitiveContains(query) }
             .prefix(4)
@@ -146,7 +170,7 @@ struct CommandPalette: View {
         let query = model.palette.query.trimmingCharacters(in: .whitespaces)
         catalog = []
         apply(resetSelection: true)
-        guard query.count >= 2 else { return }
+        guard query.count >= 2, model.palette.addingToPlaylist == nil else { return }
 
         // Debounce so we only hit the catalog once typing pauses.
         try? await Task.sleep(for: .milliseconds(220))
@@ -163,6 +187,7 @@ struct CommandPalette: View {
             }
             entry.playNext = { model.player.playNext(track) }
             entry.addToQueue = { model.player.addToQueue(track) }
+            entry.track = track
             return entry
         }
         found += results.artists.prefix(4).map { artist in
@@ -279,6 +304,12 @@ struct CommandPalette: View {
                     model.openAlbum(of: track)
                 })
             }
+            if !model.addablePlaylists.isEmpty {
+                list.append(.init(id: "cmd:add-to-playlist", group: "Playback", title: "Add current song to a playlist…", subtitle: track.title,
+                                  symbol: "text.badge.plus", keywords: "playlist save add song track") {
+                    model.palette.choosePlaylist(for: track)
+                })
+            }
             list += [
                 .init(id: "cmd:toggle", group: "Playback", title: player.isPlaying ? "Pause" : "Resume", symbol: player.isPlaying ? "pause.fill" : "play.fill", hint: "Space · ⌘↩", keywords: "play") { player.toggle() },
                 .init(id: "cmd:next", group: "Playback", title: "Next track", symbol: "forward.fill", hint: "⌘→", keywords: "skip") { player.next() },
@@ -376,9 +407,7 @@ private struct PaletteSearchField: NSViewRepresentable {
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 18)
         field.textColor = .white
-        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.white.withAlphaComponent(0.36),
-        ])
+        setPlaceholder(on: field)
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = context.coordinator
@@ -388,6 +417,13 @@ private struct PaletteSearchField: NSViewRepresentable {
 
     func updateNSView(_ field: FocusingTextField, context: Context) {
         if field.stringValue != text { field.stringValue = text }
+        if field.placeholderAttributedString?.string != placeholder { setPlaceholder(on: field) }
+    }
+
+    private func setPlaceholder(on field: NSTextField) {
+        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
+            .font: NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.white.withAlphaComponent(0.36),
+        ])
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }

@@ -26,7 +26,8 @@ import notify
 ///   play=0 insert=2 refuse=1` (the simulated engine's delays in seconds, and
 ///   whether it refuses songs), `play-playlist N`, `add-to-queue N I` (song I
 ///   of playlist N; -1 for the last), `toggle`, `wait S`, `play-duplicates N
-///   [shuffled]` (A, B, A, C from entry N, shuffle mode on or off).
+///   [shuffled]` (A, B, A, C from entry N, shuffle mode on or off),
+///   `add-to-playlist N I P` (song I of playlist N, to playlist P).
 /// - `play-duplicates`: plays A, B, A, C from the second A; `play-duplicates-first`
 ///   from the first.
 /// - `type-glass`: types "glass" into the window, as the keyboard would.
@@ -176,6 +177,7 @@ enum CheckHooks {
             "section": model.section.rawValue,
             "playlistsRecent": model.sortedPlaylists(by: .recent).map(\.name),
             "playlistsName": model.sortedPlaylists(by: .name).map(\.name),
+            "playlistsLibrary": model.playlists.map(\.name),
             "playlistsSize": model.sortedPlaylists(by: .size).map { "\($0.name):\(model.size(of: $0) ?? -1)" },
             "page": "\(model.route)".components(separatedBy: "(").first ?? "",
             "pageTitle": { () -> String in
@@ -202,6 +204,8 @@ enum CheckHooks {
             "ran": lastRun,
             "playingNow": model.player.isPlaying,
             "notice": model.player.notice ?? "",
+            "toast": model.toast?.text ?? "",
+            "addablePlaylists": model.addablePlaylists.count,
             "engineQueueIDs": (model.player.engine as? SimulatedEngine)?.entries.map(\.id).joined(separator: ",") ?? "",
             "engineIndex": (model.player.engine as? SimulatedEngine)?.index ?? -1,
             "enginePlaying": model.player.engine.isPlaying,
@@ -278,6 +282,12 @@ enum CheckHooks {
                   let tracks = try? await model.provider.tracks(in: playlist), !tracks.isEmpty else { return }
             let i = Int(words[2]) ?? 0
             model.player.addToQueue(tracks[i < 0 ? tracks.count - 1 : min(i, tracks.count - 1)])
+        case "add-to-playlist":
+            // add-to-playlist N I P: song I of playlist N, to playlist P.
+            guard words.count > 3, let from = playlist(words[1]), let to = playlist(words[3]),
+                  let tracks = try? await model.provider.tracks(in: from), !tracks.isEmpty else { return }
+            let i = Int(words[2]) ?? 0
+            model.add(tracks[i < 0 ? tracks.count - 1 : min(i, tracks.count - 1)], to: to)
         case "toggle":
             model.player.toggle()
         case "play-duplicates":

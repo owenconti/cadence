@@ -237,6 +237,17 @@ open -g "$APP"; sleep 1.5
 [[ "$(state windowOpen)" == True && "$(state pid)" == "$pid" ]] || fail "reopening the app (a Dock click) didn't bring the window back"
 echo "ok   ⌘W closes the window and the music plays on; ⌘0 and the Dock bring it back"
 
+# Adding a song to a playlist: the playlist grows by one and the page says so.
+[[ "$(state addablePlaylists)" -ge 1 ]] || fail "no playlists offered to add songs to"
+size() { python3 -c "import json; print([p.split(':')[-1] for p in json.load(open('$OUT/state.json'))['playlistsSize'] if p.startswith('$1:')][0])"; }
+target=$(python3 -c "import json; print(json.load(open('$OUT/state.json'))['playlistsLibrary'][0])")
+before=$(snapshot && size "$target")
+steps "add-to-playlist 1 0 0" "wait 1" || fail "steps didn't run"
+[[ "$(state toast)" == Added* ]] || fail "adding a song to a playlist didn't say so: '$(state toast)'"
+after=$(snapshot && size "$target")
+[[ "$after" == $((before + 1)) ]] || fail "adding a song to '$target' took it from $before songs to $after, not $((before + 1))"
+echo "ok   adding a song to a playlist adds it and says so"
+
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 
 # Artwork from the real library: every source must draw.

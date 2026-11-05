@@ -124,6 +124,13 @@ private struct PlaybackMenuItems: View {
             .keyboardShortcut(.rightArrow)
         Button("Previous Track") { model.player.previous() }
             .keyboardShortcut(.leftArrow)
+        if let track = model.player.current, !model.addablePlaylists.isEmpty {
+            Menu("Add Current Song to Playlist") {
+                ForEach(model.addablePlaylists) { playlist in
+                    Button(playlist.name) { model.add(track, to: playlist) }
+                }
+            }
+        }
         Divider()
         Toggle("Shuffle", isOn: Binding(get: { model.player.isShuffled }, set: { model.player.setShuffle($0) }))
             .keyboardShortcut("s")

@@ -176,3 +176,30 @@ struct EmptyNote: View {
         .padding(32)
     }
 }
+
+/// `AppModel.toast`, along the bottom of the page: a song added to a
+/// playlist, or why it couldn't be.
+struct ToastView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ZStack {
+            if let toast = model.toast {
+                Label(toast.text, systemImage: toast.symbol)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(2)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Capsule().fill(.ultraThickMaterial))
+                    .overlay(Capsule().stroke(.white.opacity(0.1)))
+                    .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                    .padding(.horizontal, 16)
+                    .id(toast.id)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+            }
+        }
+        .animation(.smooth(duration: 0.25), value: model.toast)
+        .allowsHitTesting(false)
+    }
+}

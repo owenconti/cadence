@@ -127,6 +127,7 @@ struct ContentArea: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .id(model.providerGeneration)
+        .overlay(alignment: .bottom) { ToastView().padding(.bottom, 24) }
     }
 
     @ViewBuilder

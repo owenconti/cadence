@@ -303,7 +303,8 @@ struct PhoneCollection: View {
                 }
             }
         }
-        .task {
+        // Again when songs are added to it, keeping the list until they're in.
+        .task(id: source.kind == .playlist ? model.playlistEdits[source.id ?? ""] ?? 0 : 0) {
             do { tracks = .loaded(try await load()) } catch { tracks = .failed(error.localizedDescription) }
         }
     }
