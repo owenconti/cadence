@@ -68,3 +68,19 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 - `Views/`, `Components/`: SwiftUI
 
 `make snapshots` captures every screen from a throwaway debug copy into `build/check/snapshots/`.
+
+CarPlay collection lists respect the connected vehicle's total row limit. Scroll
+within a page, then choose **More songs** (or **Previous songs**) to reach the
+rest; paging replaces the current template so long playlists do not exhaust the
+navigation stack. Play and Shuffle always use the full collection, and selecting
+a song starts at its original position. Artwork uses a music-note placeholder
+while loading or when unavailable; private library artwork URLs are resolved
+through an exact title/artist catalog match when possible.
+
+To manually verify in Simulator, enable I/O › External Displays › CarPlay, open
+Cadence's Playlists tab, and open a playlist longer than the vehicle's row budget.
+Check the first and last pages, Previous/More in both directions, and select a
+song on a later page: Now Playing should show that song and retain the full
+queue. Also check Play, Shuffle, Back, reconnect, repeated albums, missing artwork,
+and a playlist larger than 100 songs. A real head unit is needed to verify its
+vehicle-specific row limits and restrictions while driving.
