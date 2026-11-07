@@ -69,12 +69,13 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 
 `make snapshots` captures every screen from a throwaway debug copy into `build/check/snapshots/`.
 
-CarPlay playlists and albums show ten songs per page. Previous and Next rows
-appear before the songs (when available), keeping every page within 12 total
-rows and navigation visible at the top. Play and Shuffle stay in the navigation
+CarPlay playlists and albums show ten songs per page. Previous appears before
+the songs and Next appears after them (when available), keeping every page
+within 12 total rows. Play and Shuffle stay in the navigation
 bar and operate on the complete collection. Selecting any song uses its original
-index in the full playlist; paging never changes playback or pushes another
-screen. Empty collections show an explicit empty state.
+index in the full playlist; paging never changes playback. Page changes replace
+the current list without animation, reset scrolling to the top, and keep Back
+returning directly to the playlist chooser. Empty collections show an explicit empty state.
 
 `make carplay-check` tests page boundaries, forward/backward traversal, and the
 12-row budget; it also runs as part of `make check`. A debug iOS build supports

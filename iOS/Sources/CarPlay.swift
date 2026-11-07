@@ -152,18 +152,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 return
             }
             guard self.interface?.templates.contains(where: { $0 === template }) == true else { return }
-            template.trailingNavigationBarButtons = tracks.isEmpty ? [] : [
-                CPBarButton(title: "Play") { [weak self] _ in self?.start(tracks, at: 0, shuffled: false, from: source) },
-                CPBarButton(title: "Shuffle") { [weak self] _ in self?.start(tracks, at: 0, shuffled: true, from: source) }
-            ]
             self.showSongs(tracks, from: source, in: template)
         }
     }
 
-    /// Keep navigation first, so it never sits behind a truncated song list.
+    /// Previous precedes the songs; Next follows them, within 12 total rows.
     /// Play/Shuffle stay outside the row budget and always use all tracks.
     private func showSongs(_ tracks: [TrackItem], from source: QueueSource,
                            in template: CPListTemplate, page number: Int = 0) {
+        template.trailingNavigationBarButtons = tracks.isEmpty ? [] : [
+            CPBarButton(title: "Play") { [weak self] _ in self?.start(tracks, at: 0, shuffled: false, from: source) },
+            CPBarButton(title: "Shuffle") { [weak self] _ in self?.start(tracks, at: 0, shuffled: true, from: source) }
+        ]
         let page = CarPlaySongPage(count: tracks.count, number: number)
         collection = (tracks, source, template, page.number)
         let restricted = sessionConfiguration?.limitedUserInterfaces.contains(.lists) == true
@@ -174,13 +174,12 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                                  detailText: "Songs \(target.range.lowerBound + 1)–\(target.range.upperBound) of \(tracks.count)",
                                  image: UIImage(systemName: symbol))
             row.handler = { [weak self, weak template] _, done in
-                if let template { self?.showSongs(tracks, from: source, in: template, page: destination) }
-                done()
+                guard let self, let template else { return done() }
+                self.changePage(tracks, from: source, replacing: template, page: destination, completion: done)
             }
             return row
         }
         if let previous = page.previous { rows.append(navigation("Previous", to: previous, symbol: "chevron.left")) }
-        if let next = page.next { rows.append(navigation("Next", to: next, symbol: "chevron.right")) }
         for index in page.range {
             let track = tracks[index]
             let row = listItem(track.title, track.artistName, artwork: track.artwork) { [weak self] in
@@ -205,10 +204,41 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             row.userInfo = index
             rows.append(row)
         }
+        if let next = page.next { rows.append(navigation("Next", to: next, symbol: "chevron.right")) }
         template.emptyViewSubtitleVariants = ["No songs in this collection"]
         let header = tracks.isEmpty ? nil : "Songs \(page.range.lowerBound + 1)–\(page.range.upperBound) of \(tracks.count)"
         template.updateSections([CPListSection(items: rows, header: header, sectionIndexTitle: nil)])
         Logger(subsystem: "com.owenconti.cadence", category: "CarPlay").notice("Collection \(template.title ?? "", privacy: .public): loaded=\(tracks.count) page=\(page.number + 1) songStart=\(page.range.lowerBound) songs=\(page.range.count) submitted=\(rows.count) retained=\(template.itemCount) maxItems=\(CPListTemplate.maximumItemCount) maxSections=\(CPListTemplate.maximumSectionCount) restricted=\(restricted)")
+    }
+
+    /// A fresh list resets CarPlay's scroll offset. Replace the current level,
+    /// without animations or an ever-growing history of playlist pages.
+    private func changePage(_ tracks: [TrackItem], from source: QueueSource,
+                            replacing template: CPListTemplate, page: Int,
+                            completion: @escaping () -> Void) {
+        guard let interface else {
+            showSongs(tracks, from: source, in: template, page: page)
+            completion()
+            return
+        }
+        guard interface.topTemplate === template else { return completion() }
+        let previousCollection = collection
+        let replacement = CPListTemplate(title: template.title, sections: [])
+        showSongs(tracks, from: source, in: replacement, page: page)
+        interface.popTemplate(animated: false) { [weak self] success, _ in
+            guard let self, self.interface === interface else { return completion() }
+            guard success else {
+                self.collection = previousCollection
+                completion()
+                return
+            }
+            interface.pushTemplate(replacement, animated: false) { [weak self] success, _ in
+                guard let self, self.interface === interface else { return completion() }
+                guard !success else { return completion() }
+                self.collection = previousCollection
+                interface.pushTemplate(template, animated: false) { _, _ in completion() }
+            }
+        }
     }
 
     #if DEBUG
@@ -242,13 +272,20 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                         let page = CarPlaySongPage(count: count, number: number)
                         let rows = template.sections.flatMap { $0.items }.compactMap { $0 as? CPListItem }
                         try require(template.itemCount == page.rowCount && rows.count <= 12, "Native row budget: \(count)/\(number)")
+                        try require(template.trailingNavigationBarButtons.compactMap(\.title) == (tracks.isEmpty ? [] : ["Play", "Shuffle"]), "Page playback actions")
                         let indices = rows.compactMap { $0.userInfo as? Int }
                         try require(indices == Array(page.range), "Native song indices")
-                        let navigation = rows.filter { $0.userInfo == nil }.map { $0.text ?? "" }
-                        try require(navigation == (page.previous == nil ? [] : ["Previous"]) + (page.next == nil ? [] : ["Next"]), "Navigation placement")
+                        let actualOrder = rows.map { row in
+                            if let index = row.userInfo as? Int { return "song:\(index)" }
+                            return row.text ?? ""
+                        }
+                        let expectedOrder = (page.previous == nil ? [] : ["Previous"])
+                            + page.range.map { "song:\($0)" }
+                            + (page.next == nil ? [] : ["Next"])
+                        try require(actualOrder == expectedOrder, "Previous/song/Next placement")
                         visited += indices
                         checkedPages += 1
-                        if let song = rows.last, let index = song.userInfo as? Int {
+                        if let song = rows.last(where: { $0.userInfo is Int }), let index = song.userInfo as? Int {
                             var done = false
                             song.handler?(song) { done = true }
                             try require(done && model.player.index == index, "Selection/completion at \(index)")
@@ -256,17 +293,21 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                             checkedSelections += 1
                         }
                         guard page.next != nil, let next = rows.first(where: { $0.text == "Next" }) else { break }
+                        let queueBefore = model.player.queue.map(\.id), indexBefore = model.player.index
                         var done = false
                         next.handler?(next) { done = true }
                         try require(done, "Next completion")
+                        try require(model.player.queue.map(\.id) == queueBefore && model.player.index == indexBefore, "Next changed playback")
                         number += 1
                     }
                     try require(visited == Array(0..<count), "Native traversal skipped/duplicated songs")
                     while number > 0 {
                         let rows = template.sections.flatMap { $0.items }.compactMap { $0 as? CPListItem }
                         guard let previous = rows.first, previous.text == "Previous" else { throw Failure.check("Missing Previous") }
+                        let queueBefore = model.player.queue.map(\.id), indexBefore = model.player.index
                         var done = false
                         previous.handler?(previous) { done = true }
+                        try require(model.player.queue.map(\.id) == queueBefore && model.player.index == indexBefore, "Previous changed playback")
                         number -= 1
                         let indices = template.sections.flatMap { $0.items }.compactMap { ($0 as? CPListItem)?.userInfo as? Int }
                         try require(done && indices == Array(CarPlaySongPage(count: count, number: number).range), "Previous destination/completion")
