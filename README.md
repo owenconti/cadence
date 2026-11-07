@@ -69,30 +69,32 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 
 `make snapshots` captures every screen from a throwaway debug copy into `build/check/snapshots/`.
 
-CarPlay collection lists use one native scrolling song section with Play and
-Shuffle in the navigation bar, leaving the complete item budget for songs.
-There are no paging controls. The connected vehicle determines
-`CPListTemplate.maximumItemCount` (across all sections) and
-`maximumSectionCount`; Apple documents no universal fixed number:
-[maximumItemCount](https://developer.apple.com/documentation/carplay/cplisttemplate/maximumitemcount),
-[maximumSectionCount](https://developer.apple.com/documentation/carplay/cplisttemplate/maximumsectioncount).
-Apple's [CarPlay Developer Guide](https://developer.apple.com/download/files/CarPlay-Developer-Guide.pdf),
-“List template”, additionally documents a dynamic 12-item restriction in some
-cars. Cadence observes `CPSessionConfiguration` list restrictions, uses all 12
-rows for songs when restricted, and restores the larger budget when lifted.
-The iOS 26.5 simulator reports 500 items and 200 sections before connection;
-these values do not establish a particular car's limit. Songs beyond
-that system cap cannot be browsed in the list, but Play and Shuffle still use
-the complete collection. A section heading reports when the list is capped.
-The CarPlay log records loaded, submitted, and retained item counts and runtime
-limits to distinguish provider truncation from template truncation.
+CarPlay playlists and albums show ten songs per page. Previous and Next rows
+appear before the songs (when available), keeping every page within 12 total
+rows and navigation visible at the top. Play and Shuffle stay in the navigation
+bar and operate on the complete collection. Selecting any song uses its original
+index in the full playlist; paging never changes playback or pushes another
+screen. Empty collections show an explicit empty state.
 
-For simulator verification, launch a debug build with
-`CADENCE_CHECK_DIR=/tmp/cadence-carplay` to use the offline demo library, enable
-I/O › External Displays › CarPlay, open Cadence › Playlists › All Songs (more
-than 50 songs), and scroll to the final song. Compare Listen Now's collection
-route and verify selection on a later row starts at that song. Retest on a real
-head unit for vehicle-specific limits and restrictions while driving.
+`make carplay-check` tests page boundaries, forward/backward traversal, and the
+12-row budget; it also runs as part of `make check`. A debug iOS build supports
+`CADENCE_CARPLAY_PAGE_CHECKS=1` with `CADENCE_CHECK_DIR=/tmp/cadence-carplay` for
+native-template and playback-handler regression checks, writing its report in
+the simulator app's Documents folder.
+
+For simulator verification, enable I/O › External Displays › CarPlay and open
+Cadence › Playlists › All Songs (80 demo songs). Check first, middle and last
+pages, Previous/Next in both directions, playback from a later page, Play,
+Shuffle and Back. Compare the Listen Now route. The CarPlay log records page,
+loaded/submitted/retained counts, runtime limits and the session restriction flag.
+
+The older paging implementation could place More beyond row 12 (20 songs plus
+actions/navigation). That is a verified row-budget defect, not proof that Owen's
+car truncated it for that reason. Apple's [CarPlay Developer Guide](https://developer.apple.com/download/files/CarPlay-Developer-Guide.pdf),
+“List template”, documents dynamic 12-item restrictions in some cars, but Owen's
+restriction flag and exact route were not captured. Real-car behavior remains
+a separate verification step; the standard Xcode display has no list-restriction
+toggle, so a simulated row budget must not be described as a vehicle test.
 
 ## Apple Watch
 

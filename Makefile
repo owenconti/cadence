@@ -1,10 +1,10 @@
 # Cadence tasks. `make` with no target lists them.
 
 .DEFAULT_GOAL := help
-.PHONY: watch help update check perf snapshots artwork release run icon phone phone-snapshots testflight clean
+.PHONY: carplay-check watch help update check perf snapshots artwork release run icon phone phone-snapshots testflight clean
 
 help: ## List tasks
-	@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z][a-z-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 
 update: ## Rebuild and install /Applications/Cadence.app; a running copy offers Restart app
 	@scripts/bundle.sh
@@ -12,7 +12,11 @@ update: ## Rebuild and install /Applications/Cadence.app; a running copy offers 
 watch: ## Build the Apple Watch companion for Simulator
 	@scripts/watch.sh
 
+carplay-check: ## Check CarPlay page boundaries and navigation row budgets
+	@bash scripts/check-carplay-pages.sh
+
 check: ## Automated update + restart check on a throwaway copy, then the artwork audit
+	@bash scripts/check-carplay-pages.sh
 	@scripts/watch.sh
 	@scripts/check.sh
 

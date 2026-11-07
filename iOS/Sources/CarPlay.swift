@@ -18,7 +18,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private var model: AppModel { CadencePhoneApp.model }
     private let artwork = CarArtwork()
     private var sessionConfiguration: CPSessionConfiguration?
-    private var collection: (tracks: [TrackItem], source: QueueSource, template: CPListTemplate)?
+    private var collection: (tracks: [TrackItem], source: QueueSource, template: CPListTemplate, page: Int)?
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene, didConnect interface: CPInterfaceController) {
         self.interface = interface
@@ -36,7 +36,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     func sessionConfiguration(_ sessionConfiguration: CPSessionConfiguration,
                               limitedUserInterfacesChanged limitedUserInterfaces: CPLimitableUserInterface) {
         guard let collection, interface?.templates.contains(where: { $0 === collection.template }) == true else { return }
-        showSongs(collection.tracks, from: collection.source, in: collection.template)
+        showSongs(collection.tracks, from: collection.source, in: collection.template, page: collection.page)
     }
 
     /// Rebuilds the tabs whenever what they show changes (the library loading,
@@ -145,31 +145,43 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         template.emptyViewSubtitleVariants = ["Loading…"]
         interface?.pushTemplate(template, animated: false, completion: nil)
         Task {
-            guard let tracks = try? await load(), !tracks.isEmpty else {
+            let tracks: [TrackItem]
+            do { tracks = try await load() }
+            catch {
                 template.emptyViewSubtitleVariants = ["Couldn't load the songs"]
                 return
             }
-            template.trailingNavigationBarButtons = [
+            guard self.interface?.templates.contains(where: { $0 === template }) == true else { return }
+            template.trailingNavigationBarButtons = tracks.isEmpty ? [] : [
                 CPBarButton(title: "Play") { [weak self] _ in self?.start(tracks, at: 0, shuffled: false, from: source) },
                 CPBarButton(title: "Shuffle") { [weak self] _ in self?.start(tracks, at: 0, shuffled: true, from: source) }
             ]
-            self.collection = (tracks, source, template)
             self.showSongs(tracks, from: source, in: template)
         }
     }
 
-    /// One native scrolling list. The system owns scrolling and enforces its
-    /// connected vehicle's total item limit; never impose an extra page size.
+    /// Keep navigation first, so it never sits behind a truncated song list.
+    /// Play/Shuffle stay outside the row budget and always use all tracks.
     private func showSongs(_ tracks: [TrackItem], from source: QueueSource,
-                           in template: CPListTemplate) {
-        // Apple's CarPlay Developer Guide, “List template”: some vehicles
-        // dynamically restrict lists to 12 rows even when a larger maximum
-        // was reported earlier. Re-evaluate when the session limits change.
+                           in template: CPListTemplate, page number: Int = 0) {
+        let page = CarPlaySongPage(count: tracks.count, number: number)
+        collection = (tracks, source, template, page.number)
         let restricted = sessionConfiguration?.limitedUserInterfaces.contains(.lists) == true
-        let budget = min(CPListTemplate.maximumItemCount, restricted ? 12 : CPListTemplate.maximumItemCount)
-        let end = min(tracks.count, max(0, budget))
         var rows: [CPListItem] = []
-        for index in 0..<end {
+        func navigation(_ title: String, to destination: Int, symbol: String) -> CPListItem {
+            let target = CarPlaySongPage(count: tracks.count, number: destination)
+            let row = CPListItem(text: title,
+                                 detailText: "Songs \(target.range.lowerBound + 1)–\(target.range.upperBound) of \(tracks.count)",
+                                 image: UIImage(systemName: symbol))
+            row.handler = { [weak self, weak template] _, done in
+                if let template { self?.showSongs(tracks, from: source, in: template, page: destination) }
+                done()
+            }
+            return row
+        }
+        if let previous = page.previous { rows.append(navigation("Previous", to: previous, symbol: "chevron.left")) }
+        if let next = page.next { rows.append(navigation("Next", to: next, symbol: "chevron.right")) }
+        for index in page.range {
             let track = tracks[index]
             let row = listItem(track.title, track.artistName, artwork: track.artwork) { [weak self] in
                 self?.start(tracks, at: index, shuffled: false, from: source)
@@ -190,14 +202,89 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                     }
                 }
             }
+            row.userInfo = index
             rows.append(row)
         }
-        let header = end < tracks.count ? "CarPlay limit: \(end) of \(tracks.count) songs" : nil
+        template.emptyViewSubtitleVariants = ["No songs in this collection"]
+        let header = tracks.isEmpty ? nil : "Songs \(page.range.lowerBound + 1)–\(page.range.upperBound) of \(tracks.count)"
         template.updateSections([CPListSection(items: rows, header: header, sectionIndexTitle: nil)])
-        Logger(subsystem: "com.owenconti.cadence", category: "CarPlay").notice("Collection \(template.title ?? "", privacy: .public): loaded=\(tracks.count) submitted=\(rows.count) retained=\(template.itemCount) maxItems=\(CPListTemplate.maximumItemCount) maxSections=\(CPListTemplate.maximumSectionCount) restricted=\(restricted)")
+        Logger(subsystem: "com.owenconti.cadence", category: "CarPlay").notice("Collection \(template.title ?? "", privacy: .public): loaded=\(tracks.count) page=\(page.number + 1) songStart=\(page.range.lowerBound) songs=\(page.range.count) submitted=\(rows.count) retained=\(template.itemCount) maxItems=\(CPListTemplate.maximumItemCount) maxSections=\(CPListTemplate.maximumSectionCount) restricted=\(restricted)")
     }
 
+    #if DEBUG
+    /// Exercises the real template renderer and selection handlers on iOS,
+    /// independently of a vehicle. This does not simulate vehicle restrictions.
+    static func runPageChecksIfRequested() {
+        guard ProcessInfo.processInfo.environment["CADENCE_CARPLAY_PAGE_CHECKS"] == "1" else { return }
+        Task { @MainActor in
+            enum Failure: Error { case check(String) }
+            func require(_ condition: Bool, _ message: String) throws {
+                if !condition { throw Failure.check(message) }
+            }
+            var report: [String: Any] = [:]
+            do {
+                let model = CadencePhoneApp.model
+                for _ in 0..<100 where model.phase != .ready { try await Task.sleep(for: .milliseconds(100)) }
+                try require(!model.provider.isLive && model.phase == .ready, "Checks require the demo library")
+                let provider = DemoProvider()
+                guard let playlist = try await provider.playlists().first(where: { $0.name == "All Songs" }) else { throw Failure.check("Missing fixture") }
+                let all = try await provider.tracks(in: playlist)
+                let delegate = CarPlaySceneDelegate()
+                var checkedPages = 0
+                var checkedSelections = 0
+                for count in [0, 1, 9, 10, 11, 19, 20, 21, 80] {
+                    let tracks = Array(all.prefix(count))
+                    let template = CPListTemplate(title: "Page regression", sections: [])
+                    delegate.showSongs(tracks, from: .playlist(playlist), in: template)
+                    var visited: [Int] = []
+                    var number = 0
+                    while true {
+                        let page = CarPlaySongPage(count: count, number: number)
+                        let rows = template.sections.flatMap { $0.items }.compactMap { $0 as? CPListItem }
+                        try require(template.itemCount == page.rowCount && rows.count <= 12, "Native row budget: \(count)/\(number)")
+                        let indices = rows.compactMap { $0.userInfo as? Int }
+                        try require(indices == Array(page.range), "Native song indices")
+                        let navigation = rows.filter { $0.userInfo == nil }.map { $0.text ?? "" }
+                        try require(navigation == (page.previous == nil ? [] : ["Previous"]) + (page.next == nil ? [] : ["Next"]), "Navigation placement")
+                        visited += indices
+                        checkedPages += 1
+                        if let song = rows.last, let index = song.userInfo as? Int {
+                            var done = false
+                            song.handler?(song) { done = true }
+                            try require(done && model.player.index == index, "Selection/completion at \(index)")
+                            try require(model.player.queue.map(\.id) == tracks.map(\.id), "Selection must retain the full queue")
+                            checkedSelections += 1
+                        }
+                        guard page.next != nil, let next = rows.first(where: { $0.text == "Next" }) else { break }
+                        var done = false
+                        next.handler?(next) { done = true }
+                        try require(done, "Next completion")
+                        number += 1
+                    }
+                    try require(visited == Array(0..<count), "Native traversal skipped/duplicated songs")
+                    while number > 0 {
+                        let rows = template.sections.flatMap { $0.items }.compactMap { $0 as? CPListItem }
+                        guard let previous = rows.first, previous.text == "Previous" else { throw Failure.check("Missing Previous") }
+                        var done = false
+                        previous.handler?(previous) { done = true }
+                        number -= 1
+                        let indices = template.sections.flatMap { $0.items }.compactMap { ($0 as? CPListItem)?.userInfo as? Int }
+                        try require(done && indices == Array(CarPlaySongPage(count: count, number: number).range), "Previous destination/completion")
+                    }
+                }
+                model.player.setPlaying(false)
+                report = ["status": "PASS", "nativePages": checkedPages, "fullQueueSelections": checkedSelections,
+                          "counts": [0, 1, 9, 10, 11, 19, 20, 21, 80], "vehicleRestrictionSimulated": false]
+            } catch { report = ["status": "FAIL", "error": String(describing: error)] }
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("carplay-page-checks.json")
+            if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: url, options: .atomic) }
+            print("CarPlay page checks: \(report)")
+        }
+    }
+    #endif
+
     private func start(_ tracks: [TrackItem], at index: Int, shuffled: Bool, from source: QueueSource) {
+        Logger(subsystem: "com.owenconti.cadence", category: "CarPlay").notice("Playback queue=\(tracks.count) index=\(index) shuffled=\(shuffled)")
         model.play(tracks, startAt: index, shuffled: shuffled, from: source)
         showNowPlaying()
     }

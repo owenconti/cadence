@@ -12,7 +12,10 @@ struct CadencePhoneApp: App {
                 .environment(model)
                 .onAppear { WatchBridge.shared.start(model.player) }
             #if DEBUG
-                .onAppear { PhoneSnapshotTour.runIfRequested(model) }
+                .onAppear {
+                    PhoneSnapshotTour.runIfRequested(model)
+                    CarPlaySceneDelegate.runPageChecksIfRequested()
+                }
             #endif
         }
     }
