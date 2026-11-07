@@ -40,7 +40,7 @@ for runtime, devices in json.load(sys.stdin)['devices'].items():
         if d['name'] == sys.argv[1] and 'iOS' in runtime: print(d['udid']); sys.exit()
 " "$1"
     }
-    quiet_build -sdk iphonesimulator -configuration Debug -destination "generic/platform=iOS Simulator" \
+    quiet_build -configuration Debug -destination "generic/platform=iOS Simulator" \
         -derivedDataPath build/phone/sim CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
     app="build/phone/sim/Build/Products/Debug-iphonesimulator/Cadence.app"
     rm -rf build/phone/snapshots

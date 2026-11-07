@@ -93,6 +93,17 @@ sign() { codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" "$@" >>"$LOG
 if [[ -d "$APP/Frameworks" ]]; then
     for nested in "$APP"/Frameworks/*; do sign "$nested"; done
 fi
+WATCH_APP="$APP/Watch/CadenceWatch.app"
+[[ -d "$WATCH_APP" ]] || die "archive is missing the embedded watch companion"
+PHONE_PROFILE="$PROFILE"
+eval "$(CADENCE_SIGN_BUNDLE=com.owenconti.cadence.watchkitapp python3 -I scripts/asc.py signing)"
+cp "$PROFILE" "$WATCH_APP/embedded.mobileprovision"
+security cms -D -i "$PROFILE" > "$OUT/watch-profile.plist"
+/usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "$OUT/watch-profile.plist" > "$OUT/watch-entitlements.plist"
+if [[ -d "$WATCH_APP/Frameworks" ]]; then
+    for nested in "$WATCH_APP"/Frameworks/*; do sign "$nested"; done
+fi
+sign --entitlements "$OUT/watch-entitlements.plist" --generate-entitlement-der "$WATCH_APP"
 sign --entitlements "$OUT/entitlements.plist" --generate-entitlement-der "$APP"
 restore
 trap - EXIT

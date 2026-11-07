@@ -72,11 +72,11 @@ def api(method, path, body=None):
     return json.loads(text) if text else {}
 
 
-BUNDLE_ID = "com.owenconti.cadence"
-PROFILE_NAME = "Cadence iOS App Store"
+BUNDLE_ID = os.environ.get("CADENCE_SIGN_BUNDLE", "com.owenconti.cadence")
+PROFILE_NAME = "Cadence iOS App Store" if BUNDLE_ID == "com.owenconti.cadence" else "Cadence Watch App Store"
 KEYCHAIN = os.path.join(HOME, "cadence-signing.keychain-db")
 CERT_ID_FILE = os.path.join(HOME, "cadence-distribution-cert-id")
-PROFILE_FILE = os.path.join(HOME, "Cadence_AppStore.mobileprovision")
+PROFILE_FILE = os.path.join(HOME, "Cadence_AppStore.mobileprovision" if BUNDLE_ID == "com.owenconti.cadence" else "Cadence_Watch_AppStore.mobileprovision")
 
 
 def sh(*args, **kwargs):
@@ -144,11 +144,13 @@ def ensure_profile(cert_id):
         certs = [c["id"] for c in profile["relationships"]["certificates"]["data"]]
         # A profile made before CarPlay Audio was enabled on the App ID lacks it.
         carplay = b"com.apple.developer.carplay-audio" in base64.b64decode(profile["attributes"]["profileContent"])
-        if profile["attributes"]["profileState"] == "ACTIVE" and cert_id in certs and carplay:
+        if profile["attributes"]["profileState"] == "ACTIVE" and cert_id in certs and (carplay or BUNDLE_ID != "com.owenconti.cadence"):
             return profile["attributes"]["profileContent"]
         api("DELETE", "/v1/profiles/" + profile["id"])
     bundle = api("GET", "/v1/bundleIds?filter%5Bidentifier%5D=" + BUNDLE_ID)["data"]
-    bundle = next(b for b in bundle if b["attributes"]["identifier"] == BUNDLE_ID)
+    bundle = next((b for b in bundle if b["attributes"]["identifier"] == BUNDLE_ID), None)
+    if bundle is None:
+        sys.exit("Register explicit App ID " + BUNDLE_ID + " for team HBLWB8LVKC in Apple Developer Identifiers; no additional capabilities required for WatchConnectivity.")
     created = api("POST", "/v1/profiles", {"data": {"type": "profiles",
         "attributes": {"name": PROFILE_NAME, "profileType": "IOS_APP_STORE"},
         "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle["id"]}},

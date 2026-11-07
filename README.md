@@ -84,3 +84,24 @@ song on a later page: Now Playing should show that song and retain the full
 queue. Also check Play, Shuffle, Back, reconnect, repeated albums, missing artwork,
 and a playlist larger than 100 songs. A real head unit is needed to verify its
 vehicle-specific row limits and restrictions while driving.
+
+## Apple Watch
+
+The embedded `CadenceWatch` target (watchOS 10+) mirrors the phone's shared
+`Player` through WatchConnectivity. Controls reach the same serialized queue;
+there is no second player, artwork, or watch MusicKit authorization. Keep Cadence
+running on the paired iPhone. Offline controls are disabled and the last state
+remains visible. Crown volume is omitted: public iOS APIs do not offer arbitrary
+remote system volume control.
+
+`make watch` builds the simulator target and `make check` includes it (and thus
+macOS release checks do too). TestFlight archives embed the watch app and sign it
+before the phone. Explicit App ID `com.owenconti.cadence.watchkitapp` is registered
+under team HBLWB8LVKC in Apple Developer Identifiers, with no extra capabilities.
+Existing phone identifiers and entitlements are unchanged. Xcode needs the watchOS
+platform and simulator runtime installed.
+
+`scripts/watch.sh snapshots` captures the Now Playing fixture (`--snapshot`)
+on 41mm and 49mm simulators into `build/watch/snapshots/{small,large}.png`.
+These show the disconnected state with the last received track; pairing and
+transport should also be verified on Owen's physical watch before distribution.

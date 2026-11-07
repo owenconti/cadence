@@ -70,6 +70,7 @@ fi
 restore() { if [[ -n "${DRY_RUN:-}" || -z "${released:-}" ]]; then echo "$current" > VERSION; fi; }
 trap restore EXIT
 
+# make check also builds the embedded iOS watch companion for Simulator.
 step "Checking (make check)"
 make check
 
