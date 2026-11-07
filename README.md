@@ -69,21 +69,30 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 
 `make snapshots` captures every screen from a throwaway debug copy into `build/check/snapshots/`.
 
-CarPlay collection lists respect the connected vehicle's total row limit. Scroll
-within a page, then choose **More songs** (or **Previous songs**) to reach the
-rest; paging replaces the current template so long playlists do not exhaust the
-navigation stack. Play and Shuffle always use the full collection, and selecting
-a song starts at its original position. Artwork uses a music-note placeholder
-while loading or when unavailable; private library artwork URLs are resolved
-through an exact title/artist catalog match when possible.
+CarPlay collection lists use one native scrolling song section with Play and
+Shuffle in the navigation bar, leaving the complete item budget for songs.
+There are no paging controls. The connected vehicle determines
+`CPListTemplate.maximumItemCount` (across all sections) and
+`maximumSectionCount`; Apple documents no universal fixed number:
+[maximumItemCount](https://developer.apple.com/documentation/carplay/cplisttemplate/maximumitemcount),
+[maximumSectionCount](https://developer.apple.com/documentation/carplay/cplisttemplate/maximumsectioncount).
+Apple's [CarPlay Developer Guide](https://developer.apple.com/download/files/CarPlay-Developer-Guide.pdf),
+“List template”, additionally documents a dynamic 12-item restriction in some
+cars. Cadence observes `CPSessionConfiguration` list restrictions, uses all 12
+rows for songs when restricted, and restores the larger budget when lifted.
+The iOS 26.5 simulator reports 500 items and 200 sections before connection;
+these values do not establish a particular car's limit. Songs beyond
+that system cap cannot be browsed in the list, but Play and Shuffle still use
+the complete collection. A section heading reports when the list is capped.
+The CarPlay log records loaded, submitted, and retained item counts and runtime
+limits to distinguish provider truncation from template truncation.
 
-To manually verify in Simulator, enable I/O › External Displays › CarPlay, open
-Cadence's Playlists tab, and open a playlist longer than the vehicle's row budget.
-Check the first and last pages, Previous/More in both directions, and select a
-song on a later page: Now Playing should show that song and retain the full
-queue. Also check Play, Shuffle, Back, reconnect, repeated albums, missing artwork,
-and a playlist larger than 100 songs. A real head unit is needed to verify its
-vehicle-specific row limits and restrictions while driving.
+For simulator verification, launch a debug build with
+`CADENCE_CHECK_DIR=/tmp/cadence-carplay` to use the offline demo library, enable
+I/O › External Displays › CarPlay, open Cadence › Playlists › All Songs (more
+than 50 songs), and scroll to the final song. Compare Listen Now's collection
+route and verify selection on a later row starts at that song. Retest on a real
+head unit for vehicle-specific limits and restrictions while driving.
 
 ## Apple Watch
 

@@ -2,6 +2,7 @@ import CarPlay
 import MediaPlayer
 import MusicKit
 import UIKit
+import OSLog
 
 /// Cadence in the car: tabs for what to play (Jump back in and Discover's
 /// shelves, your playlists, trending), and the system's Now Playing screen,
@@ -12,19 +13,30 @@ import UIKit
 /// grants on request; until then this runs only in the simulator's CarPlay
 /// window (Debug builds carry the entitlement).
 @MainActor
-final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
+final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate, CPSessionConfigurationDelegate {
     private var interface: CPInterfaceController?
     private var model: AppModel { CadencePhoneApp.model }
     private let artwork = CarArtwork()
+    private var sessionConfiguration: CPSessionConfiguration?
+    private var collection: (tracks: [TrackItem], source: QueueSource, template: CPListTemplate)?
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene, didConnect interface: CPInterfaceController) {
         self.interface = interface
+        sessionConfiguration = CPSessionConfiguration(delegate: self)
         interface.setRootTemplate(rootTemplate(), animated: false, completion: nil)
         watch()
     }
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene, didDisconnectInterfaceController interface: CPInterfaceController) {
         self.interface = nil
+        sessionConfiguration = nil
+        collection = nil
+    }
+
+    func sessionConfiguration(_ sessionConfiguration: CPSessionConfiguration,
+                              limitedUserInterfacesChanged limitedUserInterfaces: CPLimitableUserInterface) {
+        guard let collection, interface?.templates.contains(where: { $0 === collection.template }) == true else { return }
+        showSongs(collection.tracks, from: collection.source, in: collection.template)
     }
 
     /// Rebuilds the tabs whenever what they show changes (the library loading,
@@ -137,34 +149,27 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 template.emptyViewSubtitleVariants = ["Couldn't load the songs"]
                 return
             }
-            let play = CPListItem(text: "Play", detailText: nil, image: UIImage(systemName: "play.fill"))
-            play.handler = { [weak self] _, done in self?.start(tracks, at: 0, shuffled: false, from: source); done() }
-            let shuffle = CPListItem(text: "Shuffle", detailText: nil, image: UIImage(systemName: "shuffle"))
-            shuffle.handler = { [weak self] _, done in self?.start(tracks, at: 0, shuffled: true, from: source); done() }
-            self.showSongs(tracks, from: source, in: template, actions: [play, shuffle], offset: 0)
+            template.trailingNavigationBarButtons = [
+                CPBarButton(title: "Play") { [weak self] _ in self?.start(tracks, at: 0, shuffled: false, from: source) },
+                CPBarButton(title: "Shuffle") { [weak self] _ in self?.start(tracks, at: 0, shuffled: true, from: source) }
+            ]
+            self.collection = (tracks, source, template)
+            self.showSongs(tracks, from: source, in: template)
         }
     }
 
-    /// Replace the current page rather than pushing templates indefinitely.
-    /// CarPlay's vehicle-dependent item budget includes actions and paging rows.
+    /// One native scrolling list. The system owns scrolling and enforces its
+    /// connected vehicle's total item limit; never impose an extra page size.
     private func showSongs(_ tracks: [TrackItem], from source: QueueSource,
-                           in template: CPListTemplate, actions: [CPListItem], offset: Int) {
-        let budget = CPListTemplate.maximumItemCount
-        let pageSize = max(1, min(20, budget - actions.count - 2))
-        let end = min(offset + pageSize, tracks.count)
-        var rows = actions
-        if offset > 0 {
-            let previous = CPListItem(text: "Previous songs", detailText: nil)
-            previous.handler = { [weak self, weak template] _, done in
-                if let template {
-                    self?.showSongs(tracks, from: source, in: template, actions: actions,
-                                    offset: max(0, offset - pageSize))
-                }
-                done()
-            }
-            rows.append(previous)
-        }
-        for index in offset..<end {
+                           in template: CPListTemplate) {
+        // Apple's CarPlay Developer Guide, “List template”: some vehicles
+        // dynamically restrict lists to 12 rows even when a larger maximum
+        // was reported earlier. Re-evaluate when the session limits change.
+        let restricted = sessionConfiguration?.limitedUserInterfaces.contains(.lists) == true
+        let budget = min(CPListTemplate.maximumItemCount, restricted ? 12 : CPListTemplate.maximumItemCount)
+        let end = min(tracks.count, max(0, budget))
+        var rows: [CPListItem] = []
+        for index in 0..<end {
             let track = tracks[index]
             let row = listItem(track.title, track.artistName, artwork: track.artwork) { [weak self] in
                 self?.start(tracks, at: index, shuffled: false, from: source)
@@ -187,17 +192,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             }
             rows.append(row)
         }
-        if end < tracks.count {
-            let next = CPListItem(text: "More songs", detailText: "\(end + 1)–\(min(end + pageSize, tracks.count)) of \(tracks.count)")
-            next.handler = { [weak self, weak template] _, done in
-                if let template {
-                    self?.showSongs(tracks, from: source, in: template, actions: actions, offset: end)
-                }
-                done()
-            }
-            rows.append(next)
-        }
-        template.updateSections([CPListSection(items: rows)])
+        let header = end < tracks.count ? "CarPlay limit: \(end) of \(tracks.count) songs" : nil
+        template.updateSections([CPListSection(items: rows, header: header, sectionIndexTitle: nil)])
+        Logger(subsystem: "com.owenconti.cadence", category: "CarPlay").notice("Collection \(template.title ?? "", privacy: .public): loaded=\(tracks.count) submitted=\(rows.count) retained=\(template.itemCount) maxItems=\(CPListTemplate.maximumItemCount) maxSections=\(CPListTemplate.maximumSectionCount) restricted=\(restricted)")
     }
 
     private func start(_ tracks: [TrackItem], at index: Int, shuffled: Bool, from source: QueueSource) {
