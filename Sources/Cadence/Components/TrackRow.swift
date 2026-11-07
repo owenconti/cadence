@@ -46,8 +46,8 @@ struct TrackRow: View {
                         .foregroundStyle(isCurrent ? Theme.accent : Theme.text)
                     if track.isExplicit { ExplicitBadge() }
                 }
-                Button(track.artistName) { model.openArtist(id: track.artistID, name: track.artistName) }
-                    .buttonStyle(LinkButtonStyle())
+                Text(track.artistName)
+                    .foregroundStyle(Theme.secondary)
                     .font(.system(size: 12))
             }
             .lineLimit(1)
@@ -93,12 +93,8 @@ struct TrackRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        // A double-click on the Mac; a tap on a phone.
-        #if os(macOS)
-        .onTapGesture(count: 2, perform: play)
-        #else
+        // The row plays on a single click or tap; embedded controls keep their actions.
         .onTapGesture(perform: play)
-        #endif
         .contextMenu { TrackMenu(track: track) }
     }
 
