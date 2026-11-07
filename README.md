@@ -97,6 +97,19 @@ restriction flag and exact route were not captured. Real-car behavior remains
 a separate verification step; the standard Xcode display has no list-restriction
 toggle, so a simulated row budget must not be described as a vehicle test.
 
+CarPlay list symbols (Previous/Next, chart, and missing-artwork note) use
+`UIImageAsset` light/dark variants at 1×, 2× and 3×. A contrasting badge keeps
+the glyph legible on both normal and highlighted rows; real artwork bypasses
+this helper. Template-only symbols were not sufficient because the native list
+kept a white glyph on a pale selected row. The native debug page checks also
+inspect the adaptive image pixels and verify colored artwork is preserved.
+Light/dark image-variant tests are not light-host visual validation: the latter
+still requires a supported CarPlay Simulator with a physical USB iPhone (Xcode
+27 Device Hub, or the standalone app for older Xcode), or a real head unit.
+The prior audit did not reproduce populated system Now Playing metadata or a
+settled collection-error caption; neither system view nor error handling is
+changed by this symbol fix. Global `UIUserInterfaceStyle` is also unchanged.
+
 ## Apple Watch
 
 The embedded `CadenceWatch` target (watchOS 10+) mirrors the phone's shared

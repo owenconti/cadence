@@ -103,7 +103,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             sections.append(CPListSection(items: shelf.items.prefix(12).map(shelfItem), header: shelf.title, sectionIndexTitle: nil))
         }
         if !feed.trending.isEmpty {
-            let item = CPListItem(text: "Trending now", detailText: "What everyone's playing this week", image: UIImage(systemName: "chart.line.uptrend.xyaxis"))
+            let item = CPListItem(text: "Trending now", detailText: "What everyone's playing this week", image: CarArtwork.symbol("chart.line.uptrend.xyaxis"))
             item.handler = { [weak self] _, done in
                 guard let self else { return done() }
                 self.model.play(feed.trending, shuffled: false, from: .trending)
@@ -172,7 +172,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             let target = CarPlaySongPage(count: tracks.count, number: destination)
             let row = CPListItem(text: title,
                                  detailText: "Songs \(target.range.lowerBound + 1)–\(target.range.upperBound) of \(tracks.count)",
-                                 image: UIImage(systemName: symbol))
+                                 image: CarArtwork.symbol(symbol))
             row.handler = { [weak self, weak template] _, done in
                 guard let self, let template else { return done() }
                 self.changePage(tracks, from: source, replacing: template, page: destination, completion: done)
@@ -259,6 +259,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 let provider = DemoProvider()
                 guard let playlist = try await provider.playlists().first(where: { $0.name == "All Songs" }) else { throw Failure.check("Missing fixture") }
                 let all = try await provider.tracks(in: playlist)
+                let symbolChecks = try CarArtwork.checkSymbols()
+                let loader = CarArtwork()
+                var loadedArtwork: UIImage?
+                loader.load(all[0].artwork) { loadedArtwork = $0 }
+                for _ in 0..<50 where loadedArtwork == nil { try await Task.sleep(for: .milliseconds(100)) }
+                try require(loadedArtwork != nil && loadedArtwork?.renderingMode != .alwaysTemplate, "Real artwork was converted into a template")
+                if let loadedArtwork { try CarArtwork.checkColoredArtwork(loadedArtwork) }
                 let delegate = CarPlaySceneDelegate()
                 var checkedPages = 0
                 var checkedSelections = 0
@@ -315,7 +322,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 }
                 model.player.setPlaying(false)
                 report = ["status": "PASS", "nativePages": checkedPages, "fullQueueSelections": checkedSelections,
-                          "counts": [0, 1, 9, 10, 11, 19, 20, 21, 80], "vehicleRestrictionSimulated": false]
+                          "counts": [0, 1, 9, 10, 11, 19, 20, 21, 80], "vehicleRestrictionSimulated": false,
+                          "symbolChecks": symbolChecks, "realArtworkColorsPreserved": true]
             } catch { report = ["status": "FAIL", "error": String(describing: error)] }
             let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("carplay-page-checks.json")
             if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) { try? data.write(to: url, options: .atomic) }
@@ -349,7 +357,118 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 /// List artwork for the car, loaded once per cover and kept for the session.
 @MainActor
 final class CarArtwork {
-    static let placeholder = UIImage(systemName: "music.note")
+    /// CPListItem images are artwork, not text. A template-only glyph stays
+    /// white on CarPlay's pale selected row. Supply display-ready light/dark
+    /// variants with an internal contrast surface, independent of row focus.
+    private static var symbolAssets: [String: UIImageAsset] = [:]
+
+    static func symbol(_ name: String) -> UIImage? {
+        if let asset = symbolAssets[name] { return asset.image(with: symbolTraits(style: .dark, scale: 2)) }
+        guard let glyph = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)) else { return nil }
+        let asset = UIImageAsset()
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            for scale in [CGFloat(1), 2, 3] {
+                let traits = symbolTraits(style: style, scale: scale)
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = scale
+                let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32), format: format).image { _ in
+                    UIColor.systemGray5.resolvedColor(with: traits).setFill()
+                    UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: 32, height: 32)).fill()
+                    let ratio = min(20 / glyph.size.width, 20 / glyph.size.height)
+                    let size = CGSize(width: glyph.size.width * ratio, height: glyph.size.height * ratio)
+                    glyph.withTintColor(style == .dark ? .white : .black, renderingMode: .alwaysOriginal)
+                        .draw(in: CGRect(x: (32 - size.width) / 2, y: (32 - size.height) / 2, width: size.width, height: size.height))
+                }
+                asset.register(image.withRenderingMode(.alwaysOriginal), with: traits)
+            }
+        }
+        symbolAssets[name] = asset
+        return asset.image(with: symbolTraits(style: .dark, scale: 2))
+    }
+
+    private static func symbolTraits(style: UIUserInterfaceStyle, scale: CGFloat) -> UITraitCollection {
+        UITraitCollection(traitsFrom: [UITraitCollection(userInterfaceStyle: style),
+            UITraitCollection(displayScale: scale), UITraitCollection(userInterfaceIdiom: .carPlay)])
+    }
+
+    #if DEBUG
+    private enum ImageCheckError: Error { case failed(String) }
+
+    private static func pixels(_ image: UIImage) throws -> (width: Int, data: [UInt8]) {
+        guard let cgImage = image.cgImage else { throw ImageCheckError.failed("No image pixels") }
+        let width = cgImage.width, height = cgImage.height
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        let success = data.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard success else { throw ImageCheckError.failed("Could not inspect pixels") }
+        return (width, data)
+    }
+
+    static func checkSymbols() throws -> [String: Any] {
+        func luminance(_ data: [UInt8], _ offset: Int) -> Double {
+            let values = (0..<3).map { channel -> Double in
+                let value = Double(data[offset + channel]) / 255
+                return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722
+        }
+        var minimumContrast = Double.greatestFiniteMagnitude
+        var variants = 0
+        for name in ["chevron.left", "chevron.right", "chart.line.uptrend.xyaxis", "music.note"] {
+            guard let image = symbol(name), let asset = image.imageAsset else { throw ImageCheckError.failed("Missing adaptive symbol \(name)") }
+            var backgrounds: [Double] = []
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                for scale in [CGFloat(1), 2, 3] {
+                    let variant = asset.image(with: symbolTraits(style: style, scale: scale))
+                    guard variant.scale == scale, variant.size == CGSize(width: 32, height: 32),
+                          variant.renderingMode == .alwaysOriginal else { throw ImageCheckError.failed("Invalid style/scale/rendering mode") }
+                    let (width, data) = try pixels(variant)
+                    let backgroundOffset = (Int(3 * scale) * width + Int(16 * scale)) * 4
+                    guard data[backgroundOffset + 3] == 255 else { throw ImageCheckError.failed("Badge must protect contrast on selected rows") }
+                    let background = luminance(data, backgroundOffset)
+                    var foreground = background
+                    for y in Int(6 * scale)..<Int(26 * scale) {
+                        for x in Int(6 * scale)..<Int(26 * scale) {
+                            let offset = (y * width + x) * 4
+                            guard data[offset + 3] == 255 else { continue }
+                            let value = luminance(data, offset)
+                            foreground = style == .dark ? max(foreground, value) : min(foreground, value)
+                        }
+                    }
+                    let contrast = (max(background, foreground) + 0.05) / (min(background, foreground) + 0.05)
+                    guard contrast >= 7 else { throw ImageCheckError.failed("Low symbol contrast: \(name), \(style), \(scale)") }
+                    minimumContrast = min(minimumContrast, contrast)
+                    if scale == 2 { backgrounds.append(background) }
+                    variants += 1
+                }
+            }
+            guard backgrounds.count == 2, backgrounds[0] > backgrounds[1] else { throw ImageCheckError.failed("Light/dark variants did not adapt") }
+        }
+        return ["variants": variants, "scales": [1, 2, 3], "styles": ["light", "dark"],
+                "minimumGlyphBadgeContrast": minimumContrast, "opaqueBadgeProtectsSelectedState": true,
+                "lightHostVisuallyVerified": false]
+    }
+
+    static func checkColoredArtwork(_ image: UIImage) throws {
+        let (_, data) = try pixels(image)
+        var colored = false
+        for offset in stride(from: 0, to: data.count, by: 4) {
+            let red = Int(data[offset]), blue = Int(data[offset + 2])
+            if data[offset + 3] > 200 && abs(red - blue) > 20 {
+                colored = true
+                break
+            }
+        }
+        guard colored else { throw ImageCheckError.failed("Real artwork lost its colors") }
+    }
+    #endif
+
+    static let placeholder = symbol("music.note")
     private let images = NSCache<NSString, UIImage>()
     private var keys: [ArtworkSource: NSString] = [:]
     private var waiting: [ArtworkSource: [(UIImage) -> Void]] = [:]
