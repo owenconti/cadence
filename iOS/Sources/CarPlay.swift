@@ -1,5 +1,6 @@
 import CarPlay
 import MediaPlayer
+import MusicKit
 import UIKit
 
 /// Cadence in the car: tabs for what to play (Jump back in and Discover's
@@ -140,14 +141,63 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             play.handler = { [weak self] _, done in self?.start(tracks, at: 0, shuffled: false, from: source); done() }
             let shuffle = CPListItem(text: "Shuffle", detailText: nil, image: UIImage(systemName: "shuffle"))
             shuffle.handler = { [weak self] _, done in self?.start(tracks, at: 0, shuffled: true, from: source); done() }
-            let limit = CPListTemplate.maximumItemCount - 2
-            let songs = tracks.prefix(limit).enumerated().map { i, track in
-                self.listItem(track.title, track.artistName, artwork: track.artwork) { [weak self] in
-                    self?.start(tracks, at: i, shuffled: false, from: source)
+            self.showSongs(tracks, from: source, in: template, actions: [play, shuffle], offset: 0)
+        }
+    }
+
+    /// Replace the current page rather than pushing templates indefinitely.
+    /// CarPlay's vehicle-dependent item budget includes actions and paging rows.
+    private func showSongs(_ tracks: [TrackItem], from source: QueueSource,
+                           in template: CPListTemplate, actions: [CPListItem], offset: Int) {
+        let budget = CPListTemplate.maximumItemCount
+        let pageSize = max(1, min(20, budget - actions.count - 2))
+        let end = min(offset + pageSize, tracks.count)
+        var rows = actions
+        if offset > 0 {
+            let previous = CPListItem(text: "Previous songs", detailText: nil)
+            previous.handler = { [weak self, weak template] _, done in
+                if let template {
+                    self?.showSongs(tracks, from: source, in: template, actions: actions,
+                                    offset: max(0, offset - pageSize))
+                }
+                done()
+            }
+            rows.append(previous)
+        }
+        for index in offset..<end {
+            let track = tracks[index]
+            let row = listItem(track.title, track.artistName, artwork: track.artwork) { [weak self] in
+                self?.start(tracks, at: index, shuffled: false, from: source)
+            }
+            // iOS cannot turn MusicKit's private library artwork URLs into
+            // UIImages. Resolve an exact catalog match for those handles.
+            if case .musicKit(let cover, _) = track.artwork,
+               cover.url(width: 80, height: 80)?.scheme?.hasPrefix("http") != true {
+                Task { [weak row] in
+                    var request = MusicCatalogSearchRequest(term: "\(track.title) \(track.artistName)", types: [Song.self])
+                    request.limit = 5
+                    if let songs = try? await request.response().songs,
+                       let match = songs.first(where: {
+                           $0.title.caseInsensitiveCompare(track.title) == .orderedSame &&
+                           $0.artistName.caseInsensitiveCompare(track.artistName) == .orderedSame
+                       }), let cover = match.artwork {
+                        self.artwork.load(ArtworkSource(cover)) { [weak row] in row?.setImage($0) }
+                    }
                 }
             }
-            template.updateSections([CPListSection(items: [play, shuffle]), CPListSection(items: songs)])
+            rows.append(row)
         }
+        if end < tracks.count {
+            let next = CPListItem(text: "More songs", detailText: "\(end + 1)–\(min(end + pageSize, tracks.count)) of \(tracks.count)")
+            next.handler = { [weak self, weak template] _, done in
+                if let template {
+                    self?.showSongs(tracks, from: source, in: template, actions: actions, offset: end)
+                }
+                done()
+            }
+            rows.append(next)
+        }
+        template.updateSections([CPListSection(items: rows)])
     }
 
     private func start(_ tracks: [TrackItem], at index: Int, shuffled: Bool, from source: QueueSource) {
@@ -175,13 +225,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 @MainActor
 final class CarArtwork {
     static let placeholder = UIImage(systemName: "music.note")
-    private var images: [ArtworkSource: UIImage] = [:]
+    private let images = NSCache<NSString, UIImage>()
+    private var keys: [ArtworkSource: NSString] = [:]
     private var waiting: [ArtworkSource: [(UIImage) -> Void]] = [:]
 
-    func cached(_ source: ArtworkSource) -> UIImage? { images[source] }
+    func cached(_ source: ArtworkSource) -> UIImage? {
+        guard let key = keys[source] else { return nil }
+        return images.object(forKey: key)
+    }
 
     func load(_ source: ArtworkSource, then apply: @escaping (UIImage) -> Void) {
-        guard images[source] == nil, source != .none else { return }
+        if let image = cached(source) { apply(image); return }
+        guard source != .none else { return }
         if waiting[source] != nil {
             waiting[source]?.append(apply)
             return
@@ -191,8 +246,12 @@ final class CarArtwork {
             let image = await NowPlaying.image(for: source)
             let callbacks = waiting.removeValue(forKey: source) ?? []
             guard let image else { return }
-            images[source] = image
-            callbacks.forEach { $0(image) }
+            let key = keys[source] ?? UUID().uuidString as NSString
+            keys[source] = key
+            images.countLimit = 200
+            let thumbnail = image.preparingThumbnail(of: CPListItem.maximumImageSize) ?? image
+            images.setObject(thumbnail, forKey: key)
+            callbacks.forEach { $0(thumbnail) }
         }
     }
 }
