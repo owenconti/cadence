@@ -10,7 +10,8 @@ import SwiftUI
 
 /// Connects playback to the system's Now Playing: Control Center, the menu bar
 /// and the Lock Screen show the current song, and media keys, headphone buttons and Control
-/// Center's controls drive the player.
+/// Center's controls drive the player. On iPhone and iPad, Apple Music's own
+/// player does this instead (see `leftToMusicKit`).
 @MainActor
 final class NowPlaying {
     private let player: Player
@@ -21,6 +22,34 @@ final class NowPlaying {
     init(player: Player) {
         self.player = player
         artwork.loaded = { [weak self] in self?.publish() }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.publishIfChanged() }
+        }
+    }
+
+    /// On iPhone and iPad, Apple Music's player plays from its own process and
+    /// keeps its own Now Playing up to date, controls included, even while
+    /// iOS has suspended Cadence. A second copy from Cadence would go stale
+    /// whenever it's suspended, and CarPlay showed that copy (progress and the
+    /// song stuck), so Cadence stays out of the way. It still publishes for
+    /// the demo library, which nothing else would. On the Mac it always does.
+    private var leftToMusicKit: Bool {
+        #if os(macOS)
+        false
+        #else
+        player.backend == .musicKit
+        #endif
+    }
+
+    private var commandsInstalled = false
+    private var commands: [MPRemoteCommand] {
+        let center = MPRemoteCommandCenter.shared()
+        return [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand, center.nextTrackCommand,
+                center.previousTrackCommand, center.changeShuffleModeCommand, center.changePlaybackPositionCommand]
+    }
+
+    private func installCommands() {
+        commandsInstalled = true
         let commands = MPRemoteCommandCenter.shared()
         handle(commands.playCommand) { player, _ in player.setPlaying(true) }
         handle(commands.pauseCommand) { player, _ in player.setPlaying(false) }
@@ -35,9 +64,16 @@ final class NowPlaying {
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return }
             player.seek(to: event.positionTime)
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.publishIfChanged() }
-        }
+    }
+
+    /// Withdraws Cadence's own Now Playing and controls, leaving the system
+    /// to Apple Music's player.
+    private func stepAside() {
+        guard commandsInstalled || published != nil else { return }
+        commands.forEach { $0.removeTarget(nil) }
+        commandsInstalled = false
+        published = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     /// Runs `action` on the main actor. Nothing promises which thread these
@@ -68,6 +104,8 @@ final class NowPlaying {
     /// macOS extrapolates elapsed time from the rate, so publish only when the
     /// song, play state or position changes in a way it can't predict.
     private func publishIfChanged() {
+        if leftToMusicKit { return stepAside() }
+        if !commandsInstalled { installCommands() }
         let id = player.current?.id
         guard let last = published else { return publish() }
         if let track = player.current, artwork.retryDue(for: track) { return publish() }
@@ -80,6 +118,7 @@ final class NowPlaying {
     }
 
     private func publish() {
+        guard !leftToMusicKit, commandsInstalled else { return }
         let center = MPNowPlayingInfoCenter.default()
         published = (player.current?.id, player.current?.artwork, player.isPlaying, player.isShuffled, player.position, Date())
         MPRemoteCommandCenter.shared().changeShuffleModeCommand.currentShuffleType = player.isShuffled ? .items : .off
