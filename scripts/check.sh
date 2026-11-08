@@ -248,6 +248,27 @@ after=$(snapshot && size "$target")
 [[ "$after" == $((before + 1)) ]] || fail "adding a song to '$target' took it from $before songs to $after, not $((before + 1))"
 echo "ok   adding a song to a playlist adds it and says so"
 
+# Making playlists: from nothing (its page opens) and with a song in it.
+steps "create-playlist Road_Trip" "wait 1" || fail "steps didn't run"
+[[ "$(state toast)" == "Created Road_Trip" ]] || fail "making a playlist didn't say so: '$(state toast)'"
+[[ "$(state page)" == playlist && "$(state pageTitle)" == Road_Trip ]] || fail "the new playlist's page didn't open: $(state page) '$(state pageTitle)'"
+[[ "$(snapshot && size Road_Trip)" == 0 ]] || fail "a new playlist isn't empty"
+steps "create-playlist Road_Trip" "wait 0.5" || fail "steps didn't run"
+[[ "$(state toast)" == *"already have"* ]] || fail "a second playlist of the same name wasn't refused: '$(state toast)'"
+steps "create-playlist Night_Drive -1 0" "wait 1" || fail "steps didn't run"
+[[ "$(state toast)" == "Created Night_Drive with"* && "$(snapshot && size Night_Drive)" == 1 ]] || fail "a playlist made with a song doesn't hold it: '$(state toast)'"
+steps "add-to-playlist -1 1 0" "wait 1" || fail "steps didn't run"
+[[ "$(snapshot && size Night_Drive)" == 2 ]] || fail "songs can't be added to a new playlist"
+# What iPhone and iPad do with playlists Cadence made: rename, reorder, remove.
+created=$(python3 -c "import json; print(','.join(json.load(open('$OUT/state.json'))['createdPlaylists']))")
+[[ "$created" == *Road_Trip* && "$created" == *Night_Drive* ]] || fail "playlists made in Cadence aren't remembered as its own: '$created'"
+steps "edit-playlist Night_Drive drop-first" "wait 1" || fail "steps didn't run"
+[[ "$(snapshot && size Night_Drive)" == 1 ]] || fail "removing a song didn't take the playlist to 1 song"
+steps "rename-playlist Night_Drive Late_Drive" "wait 1" || fail "steps didn't run"
+python3 -c "import json,sys; s=json.load(open('$OUT/state.json')); sys.exit(0 if 'Late_Drive' in s['playlistsLibrary'] and 'Night_Drive' not in s['playlistsLibrary'] else 1)" \
+    || fail "renaming a playlist didn't rename it"
+echo "ok   playlists can be made (empty, or with a song), renamed and have songs removed; duplicate names are refused"
+
 pkill -f "$APP/Contents/MacOS/Cadence" || true
 
 # Artwork from the real library: every source must draw.

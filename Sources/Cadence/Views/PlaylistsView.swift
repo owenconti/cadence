@@ -27,6 +27,9 @@ struct PlaylistsView: View {
                 .labelsHidden()
                 .frame(width: 210)
                 FilterField(prompt: "Filter playlists", text: $filter)
+                Button { model.playlistPrompt = .create(with: nil) } label: { Label("New Playlist", systemImage: "plus") }
+                    .buttonStyle(PillButtonStyle(prominent: false))
+                    .help("New Playlist (⌘N)")
             }
 
             if waiting {
@@ -80,7 +83,8 @@ struct PlaylistDetailView: View {
             artwork: model.artwork(for: playlist),
             source: .playlist(playlist),
             showArtwork: true,
-            load: { try await model.provider.tracks(in: playlist) }
+            playlist: playlist,
+            load: { try await model.tracks(in: playlist) }
         )
     }
 }
@@ -115,6 +119,8 @@ struct CollectionDetailView: View {
     let artwork: ArtworkSource
     let source: QueueSource
     let showArtwork: Bool
+    /// The playlist this is, for managing it.
+    var playlist: PlaylistItem?
     let load: () async throws -> [TrackItem]
 
     @State private var tracks: Loadable<[TrackItem]> = .loading
@@ -122,13 +128,25 @@ struct CollectionDetailView: View {
 
     var body: some View {
         let all: [TrackItem] = if case .loaded(let t) = tracks { t } else { [] }
+        #if os(iOS)
+        if let playlist, model.editingPlaylistID == playlist.id {
+            PlaylistSongEditor(playlist: playlist, tracks: all)
+        } else {
+            page(all)
+        }
+        #else
+        page(all)
+        #endif
+    }
+
+    private func page(_ all: [TrackItem]) -> some View {
         let shown = filter.isEmpty ? all : all.filter {
             $0.title.localizedCaseInsensitiveContains(filter)
                 || $0.artistName.localizedCaseInsensitiveContains(filter)
                 || $0.albumTitle.localizedCaseInsensitiveContains(filter)
         }
 
-        PageScroll {
+        return PageScroll {
             HStack(alignment: .bottom, spacing: 30) {
                 ArtworkView(source: artwork, cornerRadius: 16, resolution: 600)
                     .frame(width: 230, height: 230)
@@ -147,10 +165,14 @@ struct CollectionDetailView: View {
                     HStack(spacing: 10) {
                         Button { model.play(shown, shuffled: false, from: source) } label: { Label("Play", systemImage: "play.fill") }
                             .buttonStyle(PillButtonStyle())
+                            .disabled(all.isEmpty)
                         Button { model.play(shown, shuffled: true, from: source) } label: { Label("Shuffle", systemImage: "shuffle") }
                             .buttonStyle(PillButtonStyle(prominent: false))
+                            .disabled(all.isEmpty)
+                        if let playlist, model.canManage(playlist) {
+                            ManagePlaylistMenu(playlist: playlist, canEditSongs: isLoaded)
+                        }
                     }
-                    .disabled(all.isEmpty)
                     .padding(.top, 6)
                 }
             }
@@ -183,6 +205,10 @@ struct CollectionDetailView: View {
         }
     }
 
+    private var isLoaded: Bool {
+        if case .loaded = tracks { true } else { false }
+    }
+
     private func meta(_ tracks: [TrackItem]) -> some View {
         HStack(spacing: 6) {
             if let byline {
@@ -193,9 +219,9 @@ struct CollectionDetailView: View {
                 }
             }
             if !tracks.isEmpty {
-                Text("· \(tracks.count) songs · \(tracks.reduce(0) { $0 + $1.duration }.longForm)")
+                Text("\(byline == nil ? "" : "· ")\(tracks.count) songs · \(tracks.reduce(0) { $0 + $1.duration }.longForm)")
             } else if case .loading = self.tracks {
-                Text("· 00 songs · 0 hr 00 min").skeleton()
+                Text("\(byline == nil ? "" : "· ")00 songs · 0 hr 00 min").skeleton()
             }
         }
         .font(.system(size: 13))

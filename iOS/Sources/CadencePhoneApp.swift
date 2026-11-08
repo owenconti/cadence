@@ -47,6 +47,7 @@ struct PhoneRoot: View {
                 }
             }
         }
+        .playlistPrompt()
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
     }

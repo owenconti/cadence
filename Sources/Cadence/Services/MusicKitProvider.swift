@@ -152,6 +152,58 @@ final class MusicKitProvider: MusicProvider {
         #endif
     }
 
+    #if os(iOS)
+    let canEditPlaylists = true
+    #else
+    let canEditPlaylists = false
+    #endif
+
+    func createPlaylist(named name: String, with tracks: [TrackItem]) async throws -> PlaylistItem? {
+        #if os(iOS)
+        let songs = tracks.compactMap(\.song)
+        let playlist = songs.isEmpty
+            ? try await MusicLibrary.shared.createPlaylist(name: name)
+            : try await MusicLibrary.shared.createPlaylist(name: name, items: songs)
+        return PlaylistItem(playlist)
+        #else
+        var songs: [[String: String]] = []
+        for track in tracks {
+            let song = await apiSongReference(track)
+            songs.append(["id": song.id, "type": song.type])
+        }
+        var body: [String: Any] = ["attributes": ["name": name]]
+        if !songs.isEmpty { body["relationships"] = ["tracks": ["data": songs]] }
+        var request = URLRequest(url: URL(string: "https://api.music.apple.com/v1/me/library/playlists")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        _ = try await MusicDataRequest(urlRequest: request).response()
+        // The Mac's library lists it under a local ID once it syncs.
+        return nil
+        #endif
+    }
+
+    func rename(_ playlist: PlaylistItem, to name: String) async throws -> PlaylistItem {
+        #if os(iOS)
+        guard let target = playlist.playlist else { throw ProviderError.notEditable }
+        var renamed = PlaylistItem(try await MusicLibrary.shared.edit(target, name: name))
+        renamed.trackCount = playlist.trackCount
+        return renamed
+        #else
+        throw ProviderError.notEditable
+        #endif
+    }
+
+    func replaceTracks(of playlist: PlaylistItem, with tracks: [TrackItem]) async throws {
+        #if os(iOS)
+        let songs = tracks.compactMap(\.song)
+        guard let target = playlist.playlist, songs.count == tracks.count else { throw ProviderError.notEditable }
+        _ = try await MusicLibrary.shared.edit(target, items: songs)
+        #else
+        throw ProviderError.notEditable
+        #endif
+    }
+
     private struct APIPlaylistPage: Decodable {
         struct Item: Decodable {
             struct Attributes: Decodable {

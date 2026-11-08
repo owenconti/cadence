@@ -67,6 +67,8 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 - `Components/ArtworkSnapshot.swift`: draws library artwork into an image (Control Center, the audit)
 - `Views/`, `Components/`: SwiftUI
 
+**Playlists:** New Playlist (⌘N, the Playlists page, ⌘K, or a song's Add to Playlist menu, which can start one with that song) works everywhere. On iPhone and iPad, playlists made in Cadence can also be renamed and have songs removed and reordered (⋯ on the playlist page). The Mac can't: its MusicKit has no playlist editing, and the Apple Music API only creates playlists and adds songs. Nothing can delete a playlist. Cadence remembers which playlists it made (per device), since Apple only lets an app change those.
+
 `make snapshots` captures every screen from a throwaway debug copy into `build/check/snapshots/`.
 
 CarPlay playlists and albums show ten songs per page. Previous appears before

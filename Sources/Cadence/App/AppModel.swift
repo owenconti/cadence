@@ -15,6 +15,20 @@ struct Toast: Equatable {
     var symbol: String
 }
 
+/// Asks for a playlist's name: a new one (holding a song, if given) or a new
+/// name for one Cadence made.
+enum PlaylistPrompt: Identifiable, Equatable {
+    case create(with: TrackItem?)
+    case rename(PlaylistItem)
+
+    var id: String {
+        switch self {
+        case .create(let track): "create:\(track?.id ?? "")"
+        case .rename(let playlist): "rename:\(playlist.id)"
+        }
+    }
+}
+
 enum AccessState: Equatable {
     case idle
     case connecting
@@ -89,6 +103,18 @@ final class AppModel {
     /// How many times songs were added to each playlist, by ID, so an open
     /// playlist page reloads to show them.
     private(set) var playlistEdits: [String: Int] = [:]
+    /// The name being asked for, if any (New Playlist, Rename).
+    var playlistPrompt: PlaylistPrompt?
+    /// The playlist whose songs are being removed and reordered (iPhone and iPad).
+    var editingPlaylistID: String?
+    /// Playlists made in Cadence, by ID. Apple Music only lets an app rename
+    /// or change the songs of playlists it made.
+    private(set) var createdPlaylistIDs = Set(UserDefaults.standard.stringArray(forKey: AppModel.createdKey) ?? []) {
+        didSet { UserDefaults.standard.set(Array(createdPlaylistIDs), forKey: Self.createdKey) }
+    }
+    /// Songs just saved to a playlist, shown until Apple Music's library
+    /// lists them, so the page doesn't flick back to the old order.
+    @ObservationIgnored private var savedTracks: [String: [TrackItem]] = [:]
     /// A short confirmation (or problem) shown over the page for a few seconds.
     private(set) var toast: Toast?
     @ObservationIgnored private var toastClear: Task<Void, Never>?
@@ -115,6 +141,7 @@ final class AppModel {
     @ObservationIgnored private var playlistRefreshes = 0
     private static let sourceKey = "cadence.source"
     private static let sizesKey = "cadence.playlistSizes"
+    private static let createdKey = "cadence.createdPlaylists"
     private static let sidebarHiddenKey = "cadence.sidebarHidden"
     private static let sidebarWidthKey = "cadence.sidebarWidth"
     private static let nowPanelWidthKey = "cadence.nowPanelWidth"
@@ -472,17 +499,19 @@ final class AppModel {
         }
     }
 
-    /// After a song is added: the open page, the song count and the cover
-    /// catch up. Apple Music's library can take a few seconds to list the
-    /// song, so it's looked at again shortly after.
+    /// After songs are added, removed or moved: the open page, the song count
+    /// and the cover catch up. Apple Music's library can take a few seconds
+    /// to list the change, so it's looked at again shortly after.
     private func playlistChanged(_ playlist: PlaylistItem) async {
         let provider = self.provider
-        for delay in provider.isLive ? [0, 4] : [0] {
+        let delays = provider.isLive ? [0, 4] : [0]
+        for delay in delays {
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard provider === self.provider else { return }
+            if delay == delays.last { savedTracks[playlist.id] = nil }
             playlistEdits[playlist.id, default: 0] += 1
             guard let tracks = try? await provider.tracks(in: playlist), provider === self.provider else { continue }
-            if let mosaic = ArtworkSource.mosaic(of: tracks) { playlistMosaics[playlist.id] = mosaic }
+            playlistMosaics[playlist.id] = ArtworkSource.mosaic(of: tracks)
             if playlist.trackCount == nil {
                 playlistSizes[playlist.id] = tracks.count
                 UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
@@ -490,6 +519,134 @@ final class AppModel {
         }
         // The demo library counts its own songs.
         if !provider.isLive { await refreshPlaylists() }
+    }
+
+    /// A playlist's songs, for its page: what was just saved, until the
+    /// library has caught up.
+    func tracks(in playlist: PlaylistItem) async throws -> [TrackItem] {
+        if let saved = savedTracks[playlist.id] { return saved }
+        return try await provider.tracks(in: playlist)
+    }
+
+    // MARK: Managing playlists
+
+    /// Whether a playlist can be renamed and have its songs removed and
+    /// reordered: one Cadence made, on iPhone and iPad.
+    func canManage(_ playlist: PlaylistItem) -> Bool {
+        provider.canEditPlaylists && createdPlaylistIDs.contains(playlist.id)
+    }
+
+    /// Why a playlist can't have this name, if it can't: it's empty, or
+    /// another playlist has it (songs are added by name on the Mac, so two
+    /// playlists sharing one can't take songs).
+    func problem(naming name: String, except playlist: PlaylistItem? = nil) -> String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return "A playlist needs a name." }
+        if playlists.contains(where: { $0.id != playlist?.id && $0.name.compare(name, options: .caseInsensitive) == .orderedSame }) {
+            return "You already have a playlist called “\(name)”."
+        }
+        return nil
+    }
+
+    /// What the name prompt's button does.
+    func submit(_ prompt: PlaylistPrompt, name: String) {
+        switch prompt {
+        case .create(let track): createPlaylist(named: name, with: track)
+        case .rename(let playlist): rename(playlist, to: name)
+        }
+    }
+
+    /// Makes a playlist (holding `track`, if given) and says so. Made from
+    /// nothing, its page opens once the library lists it.
+    func createPlaylist(named raw: String, with track: TrackItem? = nil) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = problem(naming: name) {
+            return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
+        }
+        let provider = self.provider, moves = navigationMoves
+        Task {
+            let made: PlaylistItem?
+            do {
+                made = try await provider.createPlaylist(named: name, with: track.map { [$0] } ?? [])
+            } catch {
+                Self.log.error("couldn't create a playlist: \(error.localizedDescription, privacy: .public)")
+                guard provider === self.provider else { return }
+                show(Toast(text: "Couldn't create \(name): \(error.localizedDescription)", symbol: "exclamationmark.triangle.fill"))
+                return
+            }
+            guard provider === self.provider else { return }
+            if let made { createdPlaylistIDs.insert(made.id) }
+            show(Toast(text: track.map { "Created \(name) with “\($0.title)”" } ?? "Created \(name)", symbol: "checkmark.circle.fill"))
+            // Apple Music's library can take a while to list it.
+            for delay in provider.isLive ? [0, 2, 4, 8] : [0] {
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                guard provider === self.provider else { return }
+                await refreshPlaylists()
+                let found = made.flatMap { made in playlists.first { $0.id == made.id } }
+                    ?? playlists.first { $0.name == name }
+                guard let found else { continue }
+                if made != nil { createdPlaylistIDs.insert(found.id) }
+                if track == nil, moves == navigationMoves { navigate(.playlist(found)) }
+                return
+            }
+        }
+    }
+
+    func rename(_ playlist: PlaylistItem, to raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != playlist.name else { return }
+        if let problem = problem(naming: name, except: playlist) {
+            return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
+        }
+        let provider = self.provider
+        Task {
+            let renamed: PlaylistItem
+            do {
+                renamed = try await provider.rename(playlist, to: name)
+            } catch {
+                guard provider === self.provider else { return }
+                show(Toast(text: "Couldn't rename \(playlist.name): \(error.localizedDescription)", symbol: "exclamationmark.triangle.fill"))
+                return
+            }
+            guard provider === self.provider else { return }
+            replace(renamed)
+            show(Toast(text: "Renamed to \(renamed.name)", symbol: "checkmark.circle.fill"))
+        }
+    }
+
+    /// Saves a playlist's songs after removing and reordering them.
+    func saveTracks(_ tracks: [TrackItem], of playlist: PlaylistItem) {
+        editingPlaylistID = nil
+        // The page shows the new order straight away.
+        savedTracks[playlist.id] = tracks
+        let provider = self.provider
+        Task {
+            do {
+                try await provider.replaceTracks(of: playlist, with: tracks)
+            } catch {
+                guard provider === self.provider else { return }
+                savedTracks[playlist.id] = nil
+                playlistEdits[playlist.id, default: 0] += 1
+                show(Toast(text: "Couldn't save \(playlist.name): \(error.localizedDescription)", symbol: "exclamationmark.triangle.fill"))
+                return
+            }
+            guard provider === self.provider else { return }
+            if playlist.trackCount == nil {
+                playlistSizes[playlist.id] = tracks.count
+                UserDefaults.standard.set(playlistSizes, forKey: Self.sizesKey)
+            }
+            show(Toast(text: "Saved \(playlist.name)", symbol: "checkmark.circle.fill"))
+            await playlistChanged(playlist)
+        }
+    }
+
+    /// Puts a changed playlist in place of the old one, in the library and in
+    /// the pages it's open on (the same playlist, so they stay put).
+    private func replace(_ playlist: PlaylistItem) {
+        if let i = playlists.firstIndex(of: playlist) { playlists[i] = playlist }
+        stack = stack.map { route in
+            if case .playlist(let old) = route, old.id == playlist.id { .playlist(playlist) } else { route }
+        }
     }
 
     func show(_ toast: Toast) {
@@ -594,12 +751,16 @@ final class AppModel {
         playlistMosaics = [:]
         editablePlaylistIDs = []
         playlistEdits = [:]
+        savedTracks = [:]
+        editingPlaylistID = nil
+        playlistPrompt = nil
     }
 
     // MARK: Layout
 
     /// What belongs to the page being left.
     private func leavePage() {
+        editingPlaylistID = nil
         showAllPopular = false
         popularSongCount = 0
     }
@@ -737,7 +898,7 @@ final class AppModel {
                 case []: palette.runSelection()
                 case .command where entry?.playNext != nil: palette.runSelection(.playNext)
                 case .option where entry?.addToQueue != nil: palette.runSelection(.addToQueue)
-                case .shift where entry?.track != nil && !addablePlaylists.isEmpty: palette.runSelection(.addToPlaylist)
+                case .shift where entry?.track != nil: palette.runSelection(.addToPlaylist)
                 case .option: palette.runSelection()
                 default: return false
                 }

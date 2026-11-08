@@ -23,6 +23,7 @@ struct RootView: View {
             }
         }
         .ignoresSafeArea()
+        .playlistPrompt()
         .preferredColorScheme(.dark)
         .frame(minWidth: 1080, minHeight: 680)
     }

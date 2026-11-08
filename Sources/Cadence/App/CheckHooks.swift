@@ -206,6 +206,7 @@ enum CheckHooks {
             "notice": model.player.notice ?? "",
             "toast": model.toast?.text ?? "",
             "addablePlaylists": model.addablePlaylists.count,
+            "createdPlaylists": model.playlists.filter { model.createdPlaylistIDs.contains($0.id) }.map(\.name),
             "engineQueueIDs": (model.player.engine as? SimulatedEngine)?.entries.map(\.id).joined(separator: ",") ?? "",
             "engineIndex": (model.player.engine as? SimulatedEngine)?.index ?? -1,
             "enginePlaying": model.player.engine.isPlaying,
@@ -288,6 +289,24 @@ enum CheckHooks {
                   let tracks = try? await model.provider.tracks(in: from), !tracks.isEmpty else { return }
             let i = Int(words[2]) ?? 0
             model.add(tracks[i < 0 ? tracks.count - 1 : min(i, tracks.count - 1)], to: to)
+        case "create-playlist":
+            // create-playlist NAME [N I]: optionally with song I of playlist N.
+            guard words.count > 1 else { return }
+            var track: TrackItem?
+            if words.count > 3, let from = playlist(words[2]), let tracks = try? await model.provider.tracks(in: from), !tracks.isEmpty {
+                let i = Int(words[3]) ?? 0
+                track = tracks[i < 0 ? tracks.count - 1 : min(i, tracks.count - 1)]
+            }
+            model.createPlaylist(named: words[1], with: track)
+        case "rename-playlist":
+            // rename-playlist NAME NEW (names without spaces).
+            guard words.count > 2, let target = model.playlists.first(where: { $0.name == words[1] }) else { return }
+            model.rename(target, to: words[2])
+        case "edit-playlist":
+            // edit-playlist NAME reverse|drop-first: what the iPhone's song editor saves.
+            guard words.count > 2, let target = model.playlists.first(where: { $0.name == words[1] }),
+                  let tracks = try? await model.tracks(in: target) else { return }
+            model.saveTracks(words[2] == "reverse" ? tracks.reversed() : Array(tracks.dropFirst()), of: target)
         case "toggle":
             model.player.toggle()
         case "play-duplicates":

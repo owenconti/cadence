@@ -34,6 +34,26 @@ enum PhoneSnapshotTour {
 
             model.select(.playlists)
             await shot("4-playlists")
+            model.playlistPrompt = .create(with: nil)
+            await shot("4a-new-playlist")
+            model.playlistPrompt = nil
+
+            // A playlist made in Cadence: Rename and Edit Songs under ⋯.
+            if let first = playlists?.first, let tracks = try? await model.provider.tracks(in: first), tracks.count > 6 {
+                model.createPlaylist(named: "Road Trip", with: tracks[0])
+                try? await Task.sleep(for: .seconds(1))
+                if let made = model.playlists.first(where: { $0.name == "Road Trip" }) {
+                    for track in tracks[1...5] {
+                        model.add(track, to: made)
+                        try? await Task.sleep(for: .seconds(0.3))
+                    }
+                    model.navigate(.playlist(made))
+                    await shot("4b-made-playlist", wait: 1.5)
+                    model.editingPlaylistID = made.id
+                    await shot("4c-edit-songs")
+                    model.editingPlaylistID = nil
+                }
+            }
 
             model.select(.artists)
             await shot("5-artists")

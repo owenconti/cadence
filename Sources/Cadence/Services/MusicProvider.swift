@@ -25,4 +25,15 @@ protocol MusicProvider: AnyObject {
     func editablePlaylistIDs(in playlists: [PlaylistItem]) async -> Set<String>
     /// Adds a song to the end of one of the user's playlists.
     func add(_ track: TrackItem, to playlist: PlaylistItem) async throws
+    /// Makes a playlist in the user's library, starting with `tracks`. Nil
+    /// when the library doesn't say yet which playlist it is (the Mac, where
+    /// it's made through the Apple Music API and shows up a little later).
+    func createPlaylist(named name: String, with tracks: [TrackItem]) async throws -> PlaylistItem?
+    /// Whether playlists Cadence made can be renamed and have their songs
+    /// removed or reordered. Apple only allows it on iPhone and iPad; the
+    /// Mac's MusicKit and the Apple Music API can't.
+    var canEditPlaylists: Bool { get }
+    func rename(_ playlist: PlaylistItem, to name: String) async throws -> PlaylistItem
+    /// Replaces a playlist's songs: what's left after removing and reordering.
+    func replaceTracks(of playlist: PlaylistItem, with tracks: [TrackItem]) async throws
 }

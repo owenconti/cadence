@@ -157,7 +157,20 @@ struct PhonePlaylists: View {
             || (sort == .size && playlists.contains { model.size(of: $0) == nil && !model.uncountedPlaylists.contains($0.id) })
         PhonePage {
             VStack(alignment: .leading, spacing: 14) {
-                PhoneTitle(title: "Playlists", subtitle: "\(model.playlists.count) playlists", subtitlePending: !model.playlistsLoaded)
+                HStack(alignment: .top) {
+                    PhoneTitle(title: "Playlists", subtitle: "\(model.playlists.count) playlists", subtitlePending: !model.playlistsLoaded)
+                    Spacer()
+                    Button { model.playlistPrompt = .create(with: nil) } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(Theme.card))
+                            .overlay(Circle().stroke(Theme.hairline))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                    .accessibilityLabel("New Playlist")
+                }
                 Picker("Sort", selection: $model.playlistSort) {
                     ForEach(PlaylistSort.allCases, id: \.self) { Text($0.rawValue) }
                 }
@@ -203,8 +216,8 @@ struct PhonePlaylistPage: View {
 
     var body: some View {
         PhoneCollection(kind: "Playlist", title: playlist.name, byline: playlist.curator, summary: playlist.summary,
-                        artwork: model.artwork(for: playlist), source: .playlist(playlist), showArtwork: true) {
-            try await model.provider.tracks(in: playlist)
+                        artwork: model.artwork(for: playlist), source: .playlist(playlist), showArtwork: true, playlist: playlist) {
+            try await model.tracks(in: playlist)
         }
     }
 }
@@ -233,6 +246,8 @@ struct PhoneCollection: View {
     let artwork: ArtworkSource
     let source: QueueSource
     let showArtwork: Bool
+    /// The playlist this is, for managing it.
+    var playlist: PlaylistItem?
     let load: () async throws -> [TrackItem]
 
     @State private var tracks: Loadable<[TrackItem]> = .loading
@@ -240,13 +255,21 @@ struct PhoneCollection: View {
 
     var body: some View {
         let all: [TrackItem] = if case .loaded(let t) = tracks { t } else { [] }
+        if let playlist, model.editingPlaylistID == playlist.id {
+            PlaylistSongEditor(playlist: playlist, tracks: all)
+        } else {
+            page(all)
+        }
+    }
+
+    private func page(_ all: [TrackItem]) -> some View {
         let shown = filter.isEmpty ? all : all.filter {
             $0.title.localizedCaseInsensitiveContains(filter)
                 || $0.artistName.localizedCaseInsensitiveContains(filter)
                 || $0.albumTitle.localizedCaseInsensitiveContains(filter)
         }
 
-        PhonePage {
+        return PhonePage {
             VStack(spacing: 12) {
                 ArtworkView(source: artwork, cornerRadius: 14, resolution: 700)
                     .frame(width: 250, height: 250)
@@ -275,12 +298,16 @@ struct PhoneCollection: View {
                         Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PillButtonStyle())
+                    .disabled(all.isEmpty)
                     Button { model.play(shown, shuffled: true, from: source) } label: {
                         Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PillButtonStyle(prominent: false))
+                    .disabled(all.isEmpty)
+                    if let playlist, model.canManage(playlist) {
+                        ManagePlaylistMenu(playlist: playlist, canEditSongs: isLoaded)
+                    }
                 }
-                .disabled(all.isEmpty)
                 .padding(.top, 4)
             }
             .frame(maxWidth: .infinity)
@@ -307,6 +334,10 @@ struct PhoneCollection: View {
         .task(id: source.kind == .playlist ? model.playlistEdits[source.id ?? ""] ?? 0 : 0) {
             do { tracks = .loaded(try await load()) } catch { tracks = .failed(error.localizedDescription) }
         }
+    }
+
+    private var isLoaded: Bool {
+        if case .loaded = tracks { true } else { false }
     }
 
     @ViewBuilder

@@ -41,7 +41,7 @@ struct CommandPalette: View {
                     if palette.entries.indices.contains(palette.selection), palette.entries[palette.selection].playNext != nil {
                         hint("⌘↩", "play next")
                         hint("⌥↩", "add to queue")
-                        if !model.addablePlaylists.isEmpty { hint("⇧↩", "add to playlist") }
+                        hint("⇧↩", "add to playlist")
                     }
                     hint("esc", palette.addingToPlaylist != nil ? "back" : "close")
                     Spacer()
@@ -136,7 +136,13 @@ struct CommandPalette: View {
         let query = palette.query.trimmingCharacters(in: .whitespaces)
         var entries: [PaletteModel.Entry]
         if let track = palette.addingToPlaylist {
-            entries = model.addablePlaylists.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }.map { playlist in
+            // Typing a name no playlist has offers to make it.
+            let named = query.isEmpty || model.problem(naming: query) != nil ? nil : query
+            entries = [.init(id: "add:new", group: "Add “\(track.title)” to", title: named.map { "New playlist “\($0)”" } ?? "New playlist…",
+                             symbol: "plus", keywords: "create make") {
+                if let named { model.createPlaylist(named: named, with: track) } else { model.playlistPrompt = .create(with: track) }
+            }]
+            entries += model.addablePlaylists.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }.map { playlist in
                 .init(id: "add:\(playlist.id)", group: "Add “\(track.title)” to", title: playlist.name,
                       subtitle: model.size(of: playlist).map { "\($0) songs" }, artwork: model.artwork(for: playlist)) {
                     model.add(track, to: playlist)
@@ -304,12 +310,10 @@ struct CommandPalette: View {
                     model.openAlbum(of: track)
                 })
             }
-            if !model.addablePlaylists.isEmpty {
-                list.append(.init(id: "cmd:add-to-playlist", group: "Playback", title: "Add current song to a playlist…", subtitle: track.title,
-                                  symbol: "text.badge.plus", keywords: "playlist save add song track") {
-                    model.palette.choosePlaylist(for: track)
-                })
-            }
+            list.append(.init(id: "cmd:add-to-playlist", group: "Playback", title: "Add current song to a playlist…", subtitle: track.title,
+                              symbol: "text.badge.plus", keywords: "playlist save add song track new create") {
+                model.palette.choosePlaylist(for: track)
+            })
             list += [
                 .init(id: "cmd:toggle", group: "Playback", title: player.isPlaying ? "Pause" : "Resume", symbol: player.isPlaying ? "pause.fill" : "play.fill", hint: "Space · ⌘↩", keywords: "play") { player.toggle() },
                 .init(id: "cmd:next", group: "Playback", title: "Next track", symbol: "forward.fill", hint: "⌘→", keywords: "skip") { player.next() },
@@ -336,6 +340,10 @@ struct CommandPalette: View {
         list.append(.init(id: "view:widths", group: "View", title: "Reset panel widths", subtitle: "Sidebar and Now panel back to their usual size",
                           symbol: "rectangle.split.3x1", keywords: "resize sidebar now panel width default") { model.resetPanelWidths() })
 
+        if model.phase == .ready {
+            list.append(.init(id: "lib:new-playlist", group: "Library", title: "New playlist…", symbol: "plus", hint: "⌘N",
+                              keywords: "create make add playlist") { model.playlistPrompt = .create(with: nil) })
+        }
         list.append(.init(id: "lib:reload", group: "Library", title: "Reload library", symbol: "arrow.triangle.2.circlepath", keywords: "refresh playlists") {
             model.reloadLibrary()
         })

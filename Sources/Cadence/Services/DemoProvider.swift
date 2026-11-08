@@ -82,6 +82,41 @@ final class DemoProvider: MusicProvider {
         }
     }
 
+    // Like Apple Music: playlists can be made anywhere, but only changed on
+    // iPhone and iPad.
+    #if os(iOS)
+    let canEditPlaylists = true
+    #else
+    let canEditPlaylists = false
+    #endif
+
+    func createPlaylist(named name: String, with tracks: [TrackItem]) async throws -> PlaylistItem? {
+        try await pause(200)
+        let n = library.playlists.count
+        let playlist = PlaylistItem(
+            id: "playlist-made-\(n)", name: name, curator: nil, summary: nil,
+            artwork: .generated(seed: UInt64(n * 53 + 11), style: n % 6 + 1, palette: DemoLibrary.palette(n)),
+            trackCount: tracks.count
+        )
+        library.playlists.insert(playlist, at: 0)
+        library.playlistTracks[playlist.id] = tracks
+        return playlist
+    }
+
+    func rename(_ playlist: PlaylistItem, to name: String) async throws -> PlaylistItem {
+        try await pause(150)
+        guard let i = library.playlists.firstIndex(of: playlist) else { throw ProviderError.notEditable }
+        library.playlists[i].name = name
+        return library.playlists[i]
+    }
+
+    func replaceTracks(of playlist: PlaylistItem, with tracks: [TrackItem]) async throws {
+        try await pause(150)
+        guard let i = library.playlists.firstIndex(of: playlist) else { throw ProviderError.notEditable }
+        library.playlistTracks[playlist.id] = tracks
+        library.playlists[i].trackCount = tracks.count
+    }
+
     func album(for track: TrackItem) async -> AlbumItem? {
         library.albums.first { $0.id == track.albumID }
     }
@@ -116,6 +151,8 @@ private struct DemoLibrary {
     private var genres: [String: String] = [:]
 
     func genre(of track: TrackItem) -> String { genres[track.artistID ?? ""] ?? "" }
+
+    static func palette(_ n: Int) -> Palette { palettes[(n * 3 + 2) % palettes.count] }
 
     private static let palettes: [Palette] = [
         (0xFF6B5E, 0x5B2A86), (0x2EC4B6, 0x16325C), (0xF9C74F, 0xE4572E), (0x9D4EDD, 0x24104F),

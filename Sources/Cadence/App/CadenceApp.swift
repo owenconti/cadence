@@ -28,7 +28,7 @@ struct CadenceApp: App {
             // shortcut against a menu that hasn't refreshed yet (a disabled
             // Now Playing ignored ⇧⌘F while music played), and every action
             // here is harmless when there's nothing to do.
-            CommandGroup(replacing: .newItem) { FileMenuItems() }
+            CommandGroup(replacing: .newItem) { FileMenuItems(model: model) }
             CommandGroup(before: .windowList) { WindowMenuItems() }
             CommandGroup(after: .appInfo) { AppMenuItems(model: model) }
             CommandGroup(replacing: .sidebar) { ViewMenuItems(model: model) }
@@ -38,9 +38,14 @@ struct CadenceApp: App {
     }
 }
 
-/// ⌘W closes the window; the app keeps running, and playing.
+/// ⌘N makes a playlist. ⌘W closes the window; the app keeps running, and playing.
 private struct FileMenuItems: View {
+    let model: AppModel
+
     var body: some View {
+        Button("New Playlist…") { if model.phase == .ready { model.playlistPrompt = .create(with: nil) } }
+            .keyboardShortcut("n")
+        Divider()
         Button("Close Window") { NSApp.appWindow?.performClose(nil) }
             .keyboardShortcut("w")
     }
@@ -124,10 +129,14 @@ private struct PlaybackMenuItems: View {
             .keyboardShortcut(.rightArrow)
         Button("Previous Track") { model.player.previous() }
             .keyboardShortcut(.leftArrow)
-        if let track = model.player.current, !model.addablePlaylists.isEmpty {
+        if let track = model.player.current {
             Menu("Add Current Song to Playlist") {
-                ForEach(model.addablePlaylists) { playlist in
-                    Button(playlist.name) { model.add(track, to: playlist) }
+                Button("New Playlist…") { model.playlistPrompt = .create(with: track) }
+                if !model.addablePlaylists.isEmpty {
+                    Divider()
+                    ForEach(model.addablePlaylists) { playlist in
+                        Button(playlist.name) { model.add(track, to: playlist) }
+                    }
                 }
             }
         }
