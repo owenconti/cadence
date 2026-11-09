@@ -54,8 +54,8 @@ enum ArtworkAudit {
     }
 
     /// Whether iCloud takes My Playlists' records: saves a throwaway one and
-    /// deletes it. Until the record type is deployed to the container's
-    /// Production schema, saves fail and My Playlists stay on each device.
+    /// deletes it. Fails if the record type isn't in the container's
+    /// Production schema (My Playlists would then stay on each device).
     private static func playlistSchemaCheck(_ container: String) async -> String {
         let database = CKContainer(identifier: container).privateCloudDatabase
         let record = CKRecord(recordType: "Playlist", recordID: CloudStore.recordID("Playlist", "audit-\(UUID().uuidString)"))
@@ -65,7 +65,7 @@ enum ArtworkAudit {
             _ = try? await database.deleteRecord(withID: record.recordID)
             return "ok   iCloud: takes My Playlists"
         } catch {
-            return "warn iCloud: doesn't take My Playlists yet (\(error.localizedDescription)); they stay on each device until the Playlist record type is deployed"
+            return "FAIL iCloud: doesn't take My Playlists (\(error.localizedDescription)); is Support/CloudKit/schema.ckdb deployed to Production? (make cloud-schema, then CloudKit Console)"
         }
     }
 

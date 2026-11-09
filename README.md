@@ -33,7 +33,7 @@ Only the user's own signed copies (`make update`, releases, TestFlight) use iClo
 1. Identifiers › the filter menu › iCloud Containers › +, and register `iCloud.com.owenconti.cadence`.
 2. Identifiers › `com.owenconti.cadence` › iCloud › Configure: tick that container and save.
 
-The next `make update` (within an hour) and `make testflight` then pick it up. New record types must exist in the container's Production schema before builds can save them (they all use Production). `Support/CloudKit/schema.ckdb` lists them; `make cloud-schema` imports it into Development with a saved CloudKit management token (`xcrun cktool save-token --type management`), then Schema › Deploy Schema Changes… in CloudKit Console makes it live. `make artwork` says whether iCloud takes My Playlists yet.
+The next `make update` (within an hour) and `make testflight` then pick it up. New record types must exist in the container's Production schema before builds can save them (they all use Production). `Support/CloudKit/schema.ckdb` lists them; `make cloud-schema` imports it into Development with a saved CloudKit management token (`xcrun cktool save-token --type management`), then Schema › Deploy Schema Changes… in CloudKit Console makes it live. `make artwork` fails if iCloud stops taking My Playlists. Deployed for `Playlist`.
 
 ## iPhone and iPad
 
