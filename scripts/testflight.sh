@@ -58,6 +58,19 @@ mkdir -p "$PAYLOAD"
 ditto "$OUT/Cadence.xcarchive/Products/Applications/Cadence.app" "$APP"
 cp "$PROFILE" "$APP/embedded.mobileprovision"
 TEAM=HBLWB8LVKC
+
+# iCloud (CloudStore.swift) once the container is on the App ID (README); the
+# Info.plist key tells the app it may touch CloudKit.
+CLOUD_CONTAINER=iCloud.com.owenconti.cadence
+CLOUD_ENTITLEMENTS=""
+if security cms -D -i "$PROFILE" | grep -q "$CLOUD_CONTAINER"; then
+    /usr/libexec/PlistBuddy -c "Add :CadenceCloudContainer string $CLOUD_CONTAINER" "$APP/Info.plist"
+    CLOUD_ENTITLEMENTS="<key>com.apple.developer.icloud-container-identifiers</key><array><string>$CLOUD_CONTAINER</string></array>
+    <key>com.apple.developer.icloud-services</key><array><string>CloudKit</string></array>
+    <key>com.apple.developer.icloud-container-environment</key><string>Production</string>"
+else
+    echo "note: the profile has no $CLOUD_CONTAINER yet, so this build has no iCloud (see README)" >&2
+fi
 cat >"$OUT/entitlements.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,6 +81,7 @@ cat >"$OUT/entitlements.plist" <<EOF
     <key>get-task-allow</key><false/>
     <key>beta-reports-active</key><true/>
     <key>com.apple.developer.carplay-audio</key><true/>
+    $CLOUD_ENTITLEMENTS
 </dict>
 </plist>
 EOF

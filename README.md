@@ -22,6 +22,19 @@ The build signs with the first Developer ID (else Apple Development) identity in
 
 **One-time setup:** in the Apple Developer portal, go to Identifiers, register the App ID `com.owenconti.cadence`, and enable **MusicKit** on the App Services tab. MusicKit only issues tokens to registered bundle IDs.
 
+## iCloud
+
+Cadence keeps its own data (not Apple Music's) in the user's private iCloud database, synced between their Mac, iPhone and iPad by `Services/CloudStore.swift` (`CKSyncEngine`, one record zone named "Cadence"). There's no sign-in: CloudKit uses the Apple ID the device is signed into. Features plug in as a `CloudRecordKind`. None do yet, so for now it only creates the zone and keeps in step.
+
+Only the user's own signed copies (`make update`, releases, TestFlight) use iCloud. `make update` embeds a Developer ID profile from `scripts/asc.py mac-profile`, and `make testflight` uses the App Store profile. Check copies, the simulator and the demo library leave it off. The signing scripts add the entitlement and an Info.plist key (`CadenceCloudContainer`) only when the profile includes the container. Until then, builds are signed exactly as before.
+
+**One-time setup:** iCloud is enabled on the App ID `com.owenconti.cadence` (done through the API). The App Store Connect API can't create or assign containers, so in the Apple Developer portal:
+
+1. Identifiers › the filter menu › iCloud Containers › +, and register `iCloud.com.owenconti.cadence`.
+2. Identifiers › `com.owenconti.cadence` › iCloud › Configure: tick that container and save.
+
+The next `make update` (within an hour) and `make testflight` then pick it up. New record types must exist in the container's Production schema (CloudKit Console) before release builds can save them.
+
 ## iPhone and iPad
 
 `iOS/` is Cadence for iPhone and iPad, for Owen's own devices only: it's installed through TestFlight's internal testing and never goes to the App Store. It compiles the Mac app's models, services and components directly (Mac-only code is behind `#if os(macOS)`), plus phone screens in `iOS/Sources`: Discover, Playlists, Artists and Search tabs, playlist, album and artist pages, a mini player and full-screen Now Playing (swipe the artwork to change song). A full-width iPad gets the Mac's layout instead (`TabletShell`): in landscape the three columns, in portrait the sidebar and pages with the mini player; Search fills the page column in place of ⌘K. Narrow Split View sizes get the phone's. `iOS/project.yml` generates the Xcode project with XcodeGen (`brew install xcodegen`).
@@ -57,6 +70,7 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 ## Code map
 
 - `Services/MusicProvider.swift`: the protocol the UI depends on
+- `Services/CloudStore.swift`: Cadence's own data in the user's iCloud
 - `Services/MusicKitProvider.swift`: live library and catalog (recently played, personal recommendations, charts, search)
 - `Services/DemoProvider.swift`: offline catalog
 - `Services/Player.swift`: the queue and what should play; commands reach the engine one at a time, in order

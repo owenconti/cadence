@@ -52,6 +52,9 @@ final class AppModel {
     private(set) var providerGeneration = 0
     let player = Player()
     let palette = PaletteModel()
+    /// Cadence's own data in the user's iCloud; on for Apple Music in the
+    /// user's own signed copy only.
+    let cloud = CloudStore()
     #if os(macOS)
     let update = AppUpdate()
     #endif
@@ -175,6 +178,10 @@ final class AppModel {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.savePlayback(force: true) }
         }
+        // Other devices' edits, when coming back to the app.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncCloud() }
+        }
         if let frame = handoff?.windowFrame {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 NSApp.appWindow?.setFrame(frame, display: true)
@@ -184,6 +191,9 @@ final class AppModel {
         // iOS suspends a backgrounded app without warning, so save on the way out.
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.savePlayback(force: true) }
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncCloud() }
         }
         #endif
         // Check copies stay on the demo library, away from the user's music.
@@ -293,7 +303,13 @@ final class AppModel {
         guard generation == sourceGeneration else { return false }
         UserDefaults.standard.set("musicKit", forKey: Self.sourceKey)
         Task { await watchSubscription() }
+        if RunMode.current == .normal { cloud.start() }
         return true
+    }
+
+    private func syncCloud() {
+        guard case .synced = cloud.status else { return }
+        Task { await cloud.sync() }
     }
 
     func openPrivacySettings() {

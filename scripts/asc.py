@@ -4,6 +4,7 @@
     scripts/asc.py GET /v1/apps?filter[bundleId]=com.owenconti.cadence
     scripts/asc.py POST /v1/betaGroups '{"data": {...}}'
     scripts/asc.py signing   # prints KEYCHAIN, IDENTITY and PROFILE lines
+    scripts/asc.py mac-profile   # prints the Mac's Developer ID profile path, if it has iCloud
 
 `signing` makes sure there's an App Store distribution certificate (its key in
 a keychain of its own, so codesign never prompts) and a current App Store
@@ -13,9 +14,13 @@ Reads the API key that testflight.sh uses (~/.appstoreconnect/cadence.env and
 private_keys/AuthKey_<id>.p8) and prints the JSON response. Signs the token
 with openssl, so it needs nothing outside the standard library.
 """
-import base64, json, os, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
+import base64, datetime, json, os, plistlib, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
 HOME = os.path.expanduser("~/.appstoreconnect")
+# Cadence's own data (CloudStore.swift). Created in the Developer portal
+# (Identifiers › iCloud Containers) and ticked on the App ID's iCloud
+# capability; the API can do neither.
+CLOUD_CONTAINER = "iCloud.com.owenconti.cadence"
 
 
 def config():
@@ -143,8 +148,12 @@ def ensure_profile(cert_id):
     for profile in profiles["data"]:
         certs = [c["id"] for c in profile["relationships"]["certificates"]["data"]]
         # A profile made before CarPlay Audio was enabled on the App ID lacks it.
-        carplay = b"com.apple.developer.carplay-audio" in base64.b64decode(profile["attributes"]["profileContent"])
-        if profile["attributes"]["profileState"] == "ACTIVE" and cert_id in certs and (carplay or BUNDLE_ID != "com.owenconti.cadence"):
+        content = base64.b64decode(profile["attributes"]["profileContent"])
+        carplay = b"com.apple.developer.carplay-audio" in content
+        # Likewise one made before the iCloud container was assigned; until it
+        # is, each upload remakes the profile (and ships without iCloud).
+        cloud = CLOUD_CONTAINER.encode() in content
+        if profile["attributes"]["profileState"] == "ACTIVE" and cert_id in certs and (BUNDLE_ID != "com.owenconti.cadence" or (carplay and cloud)):
             return profile["attributes"]["profileContent"]
         api("DELETE", "/v1/profiles/" + profile["id"])
     bundle = api("GET", "/v1/bundleIds?filter%5Bidentifier%5D=" + BUNDLE_ID)["data"]
@@ -168,9 +177,67 @@ def signing():
     print("PROFILE=" + PROFILE_FILE)
 
 
+MAC_PROFILE_NAME = "Cadence Mac Developer ID"
+MAC_PROFILE_FILE = os.path.join(HOME, "Cadence_DeveloperID.provisionprofile")
+MAC_PROFILE_STAMP = os.path.join(HOME, "cadence-mac-profile-checked")
+
+
+def profile_usable(content):
+    """Has the iCloud container and hasn't expired."""
+    start, end = content.find(b"<?xml"), content.find(b"</plist>")
+    if start < 0 or end < 0:
+        return False
+    plist = plistlib.loads(content[start:end + len(b"</plist>")])
+    containers = plist.get("Entitlements", {}).get("com.apple.developer.icloud-container-identifiers", [])
+    expires = plist.get("ExpirationDate")
+    now = datetime.datetime.now(expires.tzinfo) if expires and expires.tzinfo else datetime.datetime.now()
+    return CLOUD_CONTAINER in containers and (expires is None or expires > now + datetime.timedelta(days=1))
+
+
+def mac_profile():
+    """For scripts/bundle.sh: the Developer ID profile that lets the Mac app
+    use iCloud, made through the API when missing. Prints its path, or nothing
+    (the app is then signed without iCloud). Asks the API at most hourly, so
+    builds stay fast while the container isn't set up yet."""
+    if os.path.exists(MAC_PROFILE_FILE) and profile_usable(open(MAC_PROFILE_FILE, "rb").read()):
+        print(MAC_PROFILE_FILE)
+        return
+    if os.path.exists(MAC_PROFILE_STAMP) and time.time() - os.path.getmtime(MAC_PROFILE_STAMP) < 3600:
+        return
+    open(MAC_PROFILE_STAMP, "w").close()
+    certs = api("GET", "/v1/certificates?limit=200")["data"]
+    cert = next((c for c in certs if c["attributes"]["certificateType"].startswith("DEVELOPER_ID_APPLICATION")), None)
+    if cert is None:
+        print("note: no Developer ID certificate in the developer account; building without iCloud", file=sys.stderr)
+        return
+    for profile in api("GET", "/v1/profiles?filter%5Bname%5D=" + urllib.parse.quote(MAC_PROFILE_NAME))["data"]:
+        content = base64.b64decode(profile["attributes"]["profileContent"])
+        if profile["attributes"]["profileState"] == "ACTIVE" and profile_usable(content):
+            with open(MAC_PROFILE_FILE, "wb") as f:
+                f.write(content)
+            print(MAC_PROFILE_FILE)
+            return
+        api("DELETE", "/v1/profiles/" + profile["id"])
+    bundle = api("GET", "/v1/bundleIds?filter%5Bidentifier%5D=com.owenconti.cadence")["data"]
+    bundle = next(b for b in bundle if b["attributes"]["identifier"] == "com.owenconti.cadence")
+    created = api("POST", "/v1/profiles", {"data": {"type": "profiles",
+        "attributes": {"name": MAC_PROFILE_NAME, "profileType": "MAC_APP_DIRECT"},
+        "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle["id"]}},
+                          "certificates": {"data": [{"type": "certificates", "id": cert["id"]}]}}}})
+    content = base64.b64decode(created["data"]["attributes"]["profileContent"])
+    if not profile_usable(content):
+        print(f"note: iCloud is off until {CLOUD_CONTAINER} is created and ticked on the App ID's iCloud capability (see README)", file=sys.stderr)
+        return
+    with open(MAC_PROFILE_FILE, "wb") as f:
+        f.write(content)
+    print(MAC_PROFILE_FILE)
+
+
 def main():
     if sys.argv[1] == "signing":
         return signing()
+    if sys.argv[1] == "mac-profile":
+        return mac_profile()
     body = sys.argv[3].encode() if len(sys.argv) > 3 else None
     print(json.dumps(api(sys.argv[1], sys.argv[2], body)))
 

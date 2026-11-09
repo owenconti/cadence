@@ -87,7 +87,39 @@ sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
 sign "$sparkle/Autoupdate"
 sign "$sparkle/Updater.app"
 sign "$STAGE/Contents/Frameworks/Sparkle.framework"
-sign "$STAGE"
+
+# iCloud (CloudStore.swift), for the app's own bundle ID under the Developer
+# ID only: the entitlement needs a Developer ID profile naming the container,
+# embedded in the bundle, or macOS refuses to launch the app. scripts/asc.py
+# fetches it through the App Store Connect API and prints nothing until the
+# container is set up (README), and the app is then signed as before. The
+# Info.plist key tells the app it may touch CloudKit.
+CLOUD_CONTAINER=iCloud.com.owenconti.cadence
+PROFILE=""
+if [[ "$BUNDLE_ID" == com.owenconti.cadence && "$SIGN_IDENTITY" == "Developer ID Application:"* && -f "$HOME/.appstoreconnect/cadence.env" ]]; then
+    PROFILE="$(python3 -I scripts/asc.py mac-profile || true)"
+fi
+if [[ -n "$PROFILE" ]]; then
+    cp "$PROFILE" "$STAGE/Contents/embedded.provisionprofile"
+    /usr/libexec/PlistBuddy -c "Add :CadenceCloudContainer string $CLOUD_CONTAINER" "$STAGE/Contents/Info.plist"
+    ENTITLEMENTS="$(dirname "$STAGE")/entitlements.plist"
+    cat >"$ENTITLEMENTS" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.application-identifier</key><string>HBLWB8LVKC.$BUNDLE_ID</string>
+    <key>com.apple.developer.team-identifier</key><string>HBLWB8LVKC</string>
+    <key>com.apple.developer.icloud-container-identifiers</key><array><string>$CLOUD_CONTAINER</string></array>
+    <key>com.apple.developer.icloud-services</key><array><string>CloudKit</string></array>
+    <key>com.apple.developer.icloud-container-environment</key><string>Production</string>
+</dict>
+</plist>
+EOF
+    sign --entitlements "$ENTITLEMENTS" "$STAGE"
+else
+    sign "$STAGE"
+fi
 
 # Swap by rename, never by overwriting files a running copy may have mapped.
 # If the second rename fails or is interrupted, cleanup puts the previous
