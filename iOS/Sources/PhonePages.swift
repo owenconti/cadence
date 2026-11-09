@@ -221,6 +221,9 @@ struct PhoneMyPlaylists: View {
                 HStack(alignment: .top) {
                     PhoneTitle(title: "My Playlists", subtitle: model.mineLocation)
                     Spacer()
+                    if model.showsCloudSync {
+                        SyncNowButton(compact: true).foregroundStyle(Theme.text).padding(.top, 2)
+                    }
                     Button { model.playlistPrompt = .createMine(with: nil) } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 17, weight: .semibold))

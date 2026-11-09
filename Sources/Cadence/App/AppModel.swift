@@ -323,8 +323,10 @@ final class AppModel {
         return true
     }
 
-    private func syncCloud() {
-        guard case .synced = cloud.status else { return }
+    /// Sends this device's changes to iCloud and fetches other devices'
+    /// (on return to the app, and Sync Now).
+    func syncCloud() {
+        guard cloud.canSync else { return }
         Task { await cloud.sync() }
     }
 
@@ -708,8 +710,23 @@ final class AppModel {
         case .off: return "On this device only"
         case .noAccount: return "Sign in to iCloud to sync"
         case .failed: return "Couldn't sync with iCloud just now"
+        case .starting, .syncing: return "Syncing with iCloud…"
         default: return "Synced with iCloud"
         }
+    }
+
+    /// Whether My Playlists' page offers Sync Now: synced through iCloud.
+    var showsCloudSync: Bool {
+        guard provider.isLive else { return false }
+        switch cloud.status {
+        case .off, .noAccount: return false
+        default: return true
+        }
+    }
+
+    /// What went wrong syncing, if it did, for the page's tooltip.
+    var cloudProblem: String? {
+        if case .failed(let message) = cloud.status { message } else { nil }
     }
 
     /// The open page and any routes to it catch up with a change.

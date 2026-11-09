@@ -86,8 +86,10 @@ struct MyPlaylistsView: View {
                     Text("\(all.count) \(all.count == 1 ? "playlist" : "playlists") · \(model.mineLocation)")
                         .font(.system(size: 13)).foregroundStyle(Theme.secondary)
                         .lineLimit(1).fixedSize()
+                        .help(model.cloudProblem ?? "")
                 }
                 Spacer()
+                if model.showsCloudSync { SyncNowButton() }
                 FilterField(prompt: "Filter playlists", text: $filter)
                 CopyPlaylistMenu()
                 Button { model.playlistPrompt = .createMine(with: nil) } label: { Label("New Playlist", systemImage: "plus") }
@@ -114,6 +116,42 @@ struct MyPlaylistsView: View {
                 .padding(.horizontal, -10)
             }
         }
+    }
+}
+
+/// Sends this device's changes to iCloud and fetches other devices' now,
+/// rather than on the next return to the app. Spins while syncing.
+struct SyncNowButton: View {
+    @Environment(AppModel.self) private var model
+    var compact = false
+
+    var body: some View {
+        let syncing = model.cloud.status == .syncing || model.cloud.status == .starting
+        Group {
+            if compact {
+                Button(action: model.syncCloud) {
+                    symbol(syncing)
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                        .background(Circle().fill(Theme.card))
+                        .overlay(Circle().stroke(Theme.hairline))
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button(action: model.syncCloud) {
+                    Label { Text("Sync Now") } icon: { symbol(syncing) }
+                }
+                .buttonStyle(PillButtonStyle(prominent: false))
+            }
+        }
+        .disabled(!model.cloud.canSync)
+        .help("Sync My Playlists with iCloud now")
+        .accessibilityLabel("Sync Now")
+    }
+
+    private func symbol(_ syncing: Bool) -> some View {
+        Image(systemName: "arrow.triangle.2.circlepath")
+            .symbolEffect(.rotate, options: .repeat(.continuous), isActive: syncing)
     }
 }
 

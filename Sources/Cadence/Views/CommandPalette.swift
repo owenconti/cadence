@@ -373,6 +373,12 @@ struct CommandPalette: View {
         if model.phase == .ready {
             list.append(.init(id: "lib:new-playlist", group: "Library", title: "New playlist…", symbol: "plus", hint: "⌘N",
                               keywords: "create make add playlist apple music") { model.playlistPrompt = .create(with: nil) })
+            if model.showsCloudSync, model.cloud.canSync {
+                list.append(.init(id: "lib:sync", group: "Library", title: "Sync My Playlists with iCloud", subtitle: model.mineLocation,
+                                  symbol: "arrow.triangle.2.circlepath", keywords: "refresh icloud cloud sync now fetch update my playlists") {
+                    model.syncCloud()
+                })
+            }
             list.append(.init(id: "lib:new-mine", group: "Library", title: "New playlist in My Playlists…", symbol: "rectangle.stack.badge.plus",
                               hint: "⇧⌘N", keywords: "create make add playlist icloud sync mine") { model.playlistPrompt = .createMine(with: nil) })
         }

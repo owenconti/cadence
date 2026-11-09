@@ -137,17 +137,34 @@ final class CloudStore {
 
     /// Sends pending edits and fetches everyone else's.
     func sync() async {
-        guard let engine else { return }
+        guard let engine, status != .syncing else { return }
         status = .syncing
+        unsaved = nil
         do {
-            try await engine.sendChanges()
+            do {
+                try await engine.sendChanges()
+            } catch let error as CKError where error.code == .partialFailure && unsaved == nil {
+                // Every failed save was sorted out (a clash, a missing zone)
+                // and queued again: send those now.
+                try await engine.sendChanges()
+            }
             try await engine.fetchChanges()
-            status = .synced(Date())
+            if let unsaved {
+                status = .failed(unsaved)
+            } else {
+                status = .synced(Date())
+            }
         } catch {
-            status = .failed(error.localizedDescription)
+            status = .failed(unsaved ?? error.localizedDescription)
             Self.log.error("sync failed: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    /// Why a record couldn't be saved during this sync, if one couldn't.
+    @ObservationIgnored private var unsaved: String?
+
+    /// Whether a sync can be asked for (the Sync Now button).
+    var canSync: Bool { engine != nil && status != .syncing }
 
     // MARK: Engine events
 
@@ -186,23 +203,33 @@ final class CloudStore {
                 for kind in kinds.values { kind.removeAll() }
             }
         case .sentRecordZoneChanges(let sent):
+            // Each save's new change tag, so the next save of it replaces it
+            // rather than clashing with it.
+            for record in sent.savedRecords {
+                if let (kind, id) = kind(of: record.recordID) { kind.saved(record, id: id) }
+            }
             for failure in sent.failedRecordSaves {
                 let recordID = failure.record.recordID
                 switch failure.error.code {
                 case .serverRecordChanged:
-                    // Someone else edited it first: take theirs, then send ours on top.
+                    // iCloud's copy changed since this device last saw it:
+                    // ours is newer, so it's saved over theirs.
                     if let server = failure.error.serverRecord, let (kind, id) = kind(of: recordID) {
-                        kind.apply(server, id: id)
+                        kind.saved(server, id: id)
                         engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                     }
                 case .zoneNotFound, .userDeletedZone:
+                    if let (kind, id) = kind(of: recordID) { kind.saved(nil, id: id) }
                     engine?.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
                     engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 case .unknownItem:
+                    // Gone from iCloud: saved afresh.
+                    if let (kind, id) = kind(of: recordID) { kind.saved(nil, id: id) }
                     engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 default:
                     // Left unsent: the next launch sends it again (`unsentIDs`).
-                    status = .failed(failure.error.localizedDescription)
+                    unsaved = failure.error.localizedDescription
+                    if status != .syncing { status = .failed(failure.error.localizedDescription) }
                     Self.log.error("couldn't save \(recordID.recordName, privacy: .public): \(failure.error.localizedDescription, privacy: .public)")
                 }
             }
@@ -266,4 +293,7 @@ protocol CloudRecordKind: AnyObject {
     func removeAll()
     /// Records iCloud has never had, sent when syncing starts.
     var unsentIDs: [String] { get }
+    /// iCloud's latest copy of a record (its change tag; not its values,
+    /// which may be older than this device's), or nil to forget it.
+    func saved(_ record: CKRecord?, id: String)
 }

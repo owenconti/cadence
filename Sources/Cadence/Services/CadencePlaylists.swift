@@ -28,10 +28,11 @@ final class CadencePlaylists: CloudRecordKind {
         var systemFields: [String: Data]
     }
 
-    /// `name` keeps the demo library's playlists apart from Apple Music's.
-    init(name: String) {
+    /// `name` keeps the demo library's playlists apart from Apple Music's;
+    /// `directory` is the app's own unless given (the audit's).
+    init(name: String, directory: URL? = nil) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = support.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Cadence", isDirectory: true)
+        let directory = directory ?? support.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Cadence", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         file = directory.appendingPathComponent("\(name).json")
         if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
@@ -135,6 +136,11 @@ final class CadencePlaylists: CloudRecordKind {
             all.append(playlist)
         }
         sort()
+        save()
+    }
+
+    func saved(_ record: CKRecord?, id: String) {
+        systemFields[id] = record.map(Self.systemFields(of:))
         save()
     }
 

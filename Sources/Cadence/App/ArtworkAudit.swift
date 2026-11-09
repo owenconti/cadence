@@ -34,39 +34,51 @@ enum ArtworkAudit {
         return true
     }
 
-    /// Whether this copy reaches the user's iCloud: syncs the (empty) Cadence
-    /// zone, keeping its sync state in the audit folder, not the app's.
+    /// Whether this copy syncs My Playlists with the user's iCloud, end to
+    /// end: makes a throwaway playlist, renames it straight away (a second
+    /// save must carry the first's change tag, or iCloud refuses it), syncs,
+    /// deletes it and syncs again. Its sync state and playlists stay in the
+    /// audit folder, not the app's. Fails if the Playlist record type isn't
+    /// deployed to the container's Production schema.
     private static func cloudCheck(_ dir: URL) async -> String {
         guard let container = CloudStore.containerIdentifier else {
             return "off  iCloud: this copy isn't signed for it (no container in its profile yet)"
         }
-        let cloud = CloudStore(directory: dir.appendingPathComponent("cloud-state", isDirectory: true))
+        let folder = dir.appendingPathComponent("cloud-state", isDirectory: true)
+        let cloud = CloudStore(directory: folder)
+        let playlists = CadencePlaylists(name: "playlists", directory: folder)
+        playlists.cloud = cloud
+        cloud.register(playlists)
         cloud.start()
-        for _ in 0..<60 {
-            switch cloud.status {
-            case .synced: return "ok   iCloud: synced with \(container)\n" + (await playlistSchemaCheck(container))
-            case .noAccount: return "FAIL iCloud: no iCloud account available to Cadence on this Mac"
-            case .failed(let message): return "FAIL iCloud: \(message)"
-            default: try? await Task.sleep(for: .milliseconds(500))
+        func settled() async -> String? {
+            for _ in 0..<60 {
+                switch cloud.status {
+                case .synced: return nil
+                case .noAccount: return "no iCloud account available to Cadence on this Mac"
+                case .failed(let message): return message
+                default: try? await Task.sleep(for: .milliseconds(500))
+                }
             }
+            return "didn't sync within 30 s"
         }
-        return "FAIL iCloud: didn't sync within 30 s"
-    }
+        if let problem = await settled() { return "FAIL iCloud: \(problem)" }
+        var lines = ["ok   iCloud: synced with \(container)"]
 
-    /// Whether iCloud takes My Playlists' records: saves a throwaway one and
-    /// deletes it. Fails if the record type isn't in the container's
-    /// Production schema (My Playlists would then stay on each device).
-    private static func playlistSchemaCheck(_ container: String) async -> String {
-        let database = CKContainer(identifier: container).privateCloudDatabase
-        let record = CKRecord(recordType: "Playlist", recordID: CloudStore.recordID("Playlist", "audit-\(UUID().uuidString)"))
-        record["name"] = "Cadence check"
-        do {
-            _ = try await database.save(record)
-            _ = try? await database.deleteRecord(withID: record.recordID)
-            return "ok   iCloud: takes My Playlists"
-        } catch {
-            return "FAIL iCloud: doesn't take My Playlists (\(error.localizedDescription)); is Support/CloudKit/schema.ckdb deployed to Production? (make cloud-schema, then CloudKit Console)"
+        let made = playlists.create(named: "Cadence check")
+        await cloud.sync()
+        playlists.rename(made.id, to: "Cadence check (renamed)")
+        await cloud.sync()
+        if let problem = await settled() {
+            playlists.delete(made.id)
+            await cloud.sync()
+            return (lines + ["FAIL iCloud: My Playlists didn't sync (\(problem)); is Support/CloudKit/schema.ckdb deployed to Production?"]).joined(separator: "\n")
         }
+        lines.append("ok   iCloud: a playlist made and renamed straight away syncs")
+        playlists.delete(made.id)
+        await cloud.sync()
+        if let problem = await settled() { return (lines + ["FAIL iCloud: deleting a playlist didn't sync (\(problem))"]).joined(separator: "\n") }
+        lines.append("ok   iCloud: deleting it syncs")
+        return lines.joined(separator: "\n")
     }
 
     private static func run() async -> [String] {
