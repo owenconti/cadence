@@ -40,6 +40,7 @@ struct PhoneShell: View {
         switch route {
         case .discover: PhoneDiscover()
         case .playlists: PhonePlaylists()
+        case .myPlaylists: PhoneMyPlaylists()
         case .artists: PhoneArtists()
         case .playlist(let playlist): PhonePlaylistPage(playlist: playlist)
         case .album(let album): PhoneAlbumPage(album: album)

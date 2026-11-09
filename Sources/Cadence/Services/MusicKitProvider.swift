@@ -204,6 +204,127 @@ final class MusicKitProvider: MusicProvider {
         #endif
     }
 
+    // MARK: My Playlists
+
+    func songRefs(for tracks: [TrackItem], from playlist: PlaylistItem?) async -> [SongRef] {
+        // A library playlist's songs only have this device's IDs; the Apple
+        // Music API lists them with their catalog IDs.
+        if let playlist, playlist.playlist != nil, tracks.contains(where: Self.isLibrary),
+           let refs = try? await apiSongRefs(of: playlist), refs.count == tracks.count {
+            return refs
+        }
+        return await withTaskGroup(of: (Int, SongRef).self) { group in
+            var refs = [SongRef?](repeating: nil, count: tracks.count)
+            var pending = Array(tracks.enumerated())[...]
+            func next() {
+                guard let (i, track) = pending.popFirst() else { return }
+                group.addTask { @MainActor in (i, await Self.songRef(for: track)) }
+            }
+            for _ in 0..<8 { next() }
+            for await (i, ref) in group {
+                refs[i] = ref
+                next()
+            }
+            return refs.compactMap { $0 }
+        }
+    }
+
+    func tracks(for refs: [SongRef]) async -> [TrackItem] {
+        var songs: [String: Song] = [:]
+        let catalogIDs = Array(Set(refs.compactMap(\.catalogID)))
+        for start in stride(from: 0, to: catalogIDs.count, by: 100) {
+            let chunk = catalogIDs[start..<min(start + 100, catalogIDs.count)].map { MusicItemID($0) }
+            let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: chunk)
+            for song in (try? await request.response().items) ?? [] { songs[song.id.rawValue] = song }
+        }
+        // Songs the user uploaded are only in their library.
+        let libraryOnly = refs.filter { $0.catalogID == nil }.compactMap(\.libraryID)
+        for (id, song) in await self.songs(withIDs: Array(Set(libraryOnly))) { songs[id] = song }
+        return refs.compactMap { ref in
+            let song = ref.catalogID.flatMap { songs[$0] } ?? ref.libraryID.flatMap { songs[$0] }
+            return song.map { withID(ref.key, TrackItem(song: $0)) }
+        }
+    }
+
+    private static func isLibrary(_ track: TrackItem) -> Bool {
+        playParameters(of: track)?["isLibrary"] as? Bool ?? false
+    }
+
+    private static func playParameters(of track: TrackItem) -> [String: Any]? {
+        guard let parameters = track.song?.playParameters, let data = try? JSONEncoder().encode(parameters) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// One song's reference: a catalog song as it is, a library song by the
+    /// catalog ID it has (iPhone) or the catalog song with its title and
+    /// artist (the Mac's library doesn't say).
+    private static func songRef(for track: TrackItem) async -> SongRef {
+        var ref = SongRef(catalogID: nil, libraryID: nil, title: track.title, artist: track.artistName,
+                          album: track.albumTitle, duration: track.duration)
+        let parameters = playParameters(of: track)
+        guard parameters?["isLibrary"] as? Bool == true else {
+            ref.catalogID = track.id
+            return ref
+        }
+        if track.id.hasPrefix("i.") { ref.libraryID = track.id }
+        if let catalogID = parameters?["catalogId"] as? String {
+            ref.catalogID = catalogID
+            return ref
+        }
+        var search = MusicCatalogSearchRequest(term: "\(track.title) \(track.artistName)", types: [Song.self])
+        search.limit = 10
+        let found = (try? await search.response().songs) ?? []
+        func same(_ a: String, _ b: String) -> Bool { a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+        let match = found.first { same($0.title, track.title) && same($0.artistName, track.artistName) && same($0.albumTitle ?? "", track.albumTitle) }
+            ?? found.first { same($0.title, track.title) && same($0.artistName, track.artistName) }
+        ref.catalogID = match?.id.rawValue
+        return ref
+    }
+
+    private struct APILibrarySongPage: Decodable {
+        struct Item: Decodable {
+            struct Attributes: Decodable {
+                struct PlayParams: Decodable { let catalogId: String? }
+                let name: String
+                let artistName: String?
+                let albumName: String?
+                let durationInMillis: Double?
+                let playParams: PlayParams?
+            }
+            let id: String
+            let attributes: Attributes?
+        }
+        let data: [Item]
+        let next: String?
+    }
+
+    /// A library playlist's songs as the Apple Music API lists them, with
+    /// catalog IDs. The playlist is found by its ID (iPhone) or its name.
+    private func apiSongRefs(of playlist: PlaylistItem) async throws -> [SongRef]? {
+        var apiID: String? = playlist.id.hasPrefix("p.") ? playlist.id : nil
+        if apiID == nil {
+            let matches = try await apiPlaylists().filter { $0.name == playlist.name }
+            guard matches.count == 1 else { return nil }
+            apiID = matches[0].id
+        }
+        guard let apiID else { return nil }
+        var refs: [SongRef] = []
+        var path: String? = "/v1/me/library/playlists/\(apiID)/tracks?limit=100"
+        while let next = path, let url = URL(string: "https://api.music.apple.com" + next) {
+            guard refs.count < 20_000 else { throw ProviderError.tooLong(refs.count) }
+            let data = try await MusicDataRequest(urlRequest: URLRequest(url: url)).response().data
+            let page = try JSONDecoder().decode(APILibrarySongPage.self, from: data)
+            refs += page.data.compactMap { item in
+                guard let a = item.attributes else { return nil }
+                return SongRef(catalogID: a.playParams?.catalogId, libraryID: item.id.hasPrefix("i.") ? item.id : nil,
+                               title: a.name, artist: a.artistName ?? "", album: a.albumName ?? "",
+                               duration: (a.durationInMillis ?? 0) / 1000)
+            }
+            path = page.next
+        }
+        return refs
+    }
+
     private struct APIPlaylistPage: Decodable {
         struct Item: Decodable {
             struct Attributes: Decodable {

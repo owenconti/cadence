@@ -16,11 +16,20 @@ private struct PlaylistPromptHost: ViewModifier {
             .alert(Text(title(prompt)), isPresented: Binding(get: { model.playlistPrompt != nil },
                                                             set: { if !$0 { model.playlistPrompt = nil } }),
                    presenting: prompt) { prompt in
-                TextField("Playlist name", text: $name)
-                Button(button(prompt)) { model.submit(prompt, name: name) }
+                if case .delete = prompt {
+                    Button("Delete", role: .destructive) { model.submit(prompt, name: "") }
+                } else {
+                    TextField("Playlist name", text: $name)
+                    Button(button(prompt)) { model.submit(prompt, name: name) }
+                }
                 Button("Cancel", role: .cancel) {}
             } message: { prompt in
-                if case .create(let track?) = prompt { Text("It starts with “\(track.title)”.") }
+                switch prompt {
+                case .create(let track?): Text("It starts with “\(track.title)”.")
+                case .createMine(let track): Text((track.map { "It starts with “\($0.title)”. " } ?? "") + "My Playlists sync through iCloud to all your devices.")
+                case .delete(let playlist): Text("“\(playlist.name)” is removed from My Playlists on all your devices.")
+                default: EmptyView()
+                }
             }
             .onChange(of: prompt?.id) {
                 if case .rename(let playlist) = model.playlistPrompt { name = playlist.name } else { name = "" }
@@ -28,7 +37,12 @@ private struct PlaylistPromptHost: ViewModifier {
     }
 
     private func title(_ prompt: PlaylistPrompt?) -> String {
-        if case .rename = prompt { "Rename Playlist" } else { "New Playlist" }
+        switch prompt {
+        case .rename: "Rename Playlist"
+        case .createMine: "New Playlist in My Playlists"
+        case .delete(let playlist): "Delete “\(playlist.name)”?"
+        default: "New Playlist"
+        }
     }
 
     private func button(_ prompt: PlaylistPrompt) -> String {
@@ -45,18 +59,29 @@ struct AddToPlaylistMenu: View {
     var body: some View {
         Menu(title, systemImage: "text.badge.plus") {
             Button("New Playlist…", systemImage: "plus") { model.playlistPrompt = .create(with: track) }
+            Button("New Playlist in My Playlists…", systemImage: "rectangle.stack.badge.plus") { model.playlistPrompt = .createMine(with: track) }
+            let mine = model.addableMine
+            if !mine.isEmpty {
+                Section("My Playlists") {
+                    ForEach(mine) { playlist in
+                        Button(playlist.name) { model.add(track, to: playlist) }
+                    }
+                }
+            }
             let playlists = model.addablePlaylists
             if !playlists.isEmpty {
-                Divider()
-                ForEach(playlists) { playlist in
-                    Button(playlist.name) { model.add(track, to: playlist) }
+                Section("Apple Music") {
+                    ForEach(playlists) { playlist in
+                        Button(playlist.name) { model.add(track, to: playlist) }
+                    }
                 }
             }
         }
     }
 }
 
-/// Rename and Edit Songs, for a playlist Cadence made (iPhone and iPad).
+/// Rename and Edit Songs, for a playlist Cadence made (iPhone and iPad), and
+/// Delete for My Playlists. Edit Songs is iPhone and iPad only.
 struct ManagePlaylistMenu: View {
     @Environment(AppModel.self) private var model
     let playlist: PlaylistItem
@@ -66,8 +91,14 @@ struct ManagePlaylistMenu: View {
     var body: some View {
         Menu {
             Button("Rename…", systemImage: "pencil") { model.playlistPrompt = .rename(playlist) }
+            #if os(iOS)
             Button("Edit Songs", systemImage: "list.bullet") { model.editingPlaylistID = playlist.id }
                 .disabled(!canEditSongs)
+            #endif
+            if playlist.isCadence {
+                Divider()
+                Button("Delete Playlist…", systemImage: "trash", role: .destructive) { model.playlistPrompt = .delete(playlist) }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .semibold))

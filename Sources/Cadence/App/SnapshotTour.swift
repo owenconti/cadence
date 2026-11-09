@@ -39,6 +39,18 @@ enum SnapshotTour {
             model.select(.playlists)
             await shot("6-playlists")
 
+            // My Playlists: empty, then with a copy of a demo playlist.
+            model.mine.removeAll()
+            model.select(.mine)
+            await shot("6a-my-playlists-empty")
+            if let first = playlists?.first {
+                model.navigate(.playlist(first))
+                await model.copyToMine(first).value
+                await shot("6b-my-playlist-copy", wait: 1.5)
+            }
+            model.select(.mine)
+            await shot("6c-my-playlists")
+
             model.palette.present()
             await shot("7-palette-commands", wait: 1.2)
             model.palette.query = "glass"

@@ -210,11 +210,65 @@ struct PhonePlaylists: View {
     }
 }
 
-struct PhonePlaylistPage: View {
+/// My Playlists: Cadence's own, synced through iCloud.
+struct PhoneMyPlaylists: View {
     @Environment(AppModel.self) private var model
-    let playlist: PlaylistItem
 
     var body: some View {
+        let playlists = model.myPlaylists
+        PhonePage {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top) {
+                    PhoneTitle(title: "My Playlists", subtitle: model.mineLocation)
+                    Spacer()
+                    Button { model.playlistPrompt = .createMine(with: nil) } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(Theme.card))
+                            .overlay(Circle().stroke(Theme.hairline))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                    .accessibilityLabel("New Playlist in My Playlists")
+                }
+                Menu {
+                    ForEach(model.sortedPlaylists(by: .name)) { playlist in
+                        Button(playlist.name) { model.copyToMine(playlist) }
+                    }
+                } label: {
+                    Label("Copy an Apple Music Playlist", systemImage: "square.on.square").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PillButtonStyle(prominent: false))
+                .disabled(model.playlists.isEmpty)
+            }
+
+            if playlists.isEmpty {
+                EmptyNote(symbol: "rectangle.stack.badge.person.crop", title: "No playlists here yet",
+                          message: "Make one, or copy one of your Apple Music playlists. They sync to all your devices.")
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 2), alignment: .leading, spacing: 4) {
+                    ForEach(playlists) { playlist in
+                        MediaCard(title: playlist.name, subtitle: "\(playlist.trackCount ?? 0) songs",
+                                  artwork: model.artwork(for: playlist), width: nil) {
+                            model.navigate(.playlist(playlist))
+                        }
+                    }
+                }
+                .padding(.horizontal, -10)
+            }
+        }
+    }
+}
+
+struct PhonePlaylistPage: View {
+    @Environment(AppModel.self) private var model
+    let route: PlaylistItem
+
+    init(playlist: PlaylistItem) { route = playlist }
+
+    var body: some View {
+        let playlist = model.fresh(route)
         PhoneCollection(kind: "Playlist", title: playlist.name, byline: playlist.curator, summary: playlist.summary,
                         artwork: model.artwork(for: playlist), source: .playlist(playlist), showArtwork: true, playlist: playlist) {
             try await model.tracks(in: playlist)
@@ -309,6 +363,12 @@ struct PhoneCollection: View {
                     }
                 }
                 .padding(.top, 4)
+                if let playlist, !playlist.isCadence {
+                    Button { model.copyToMine(playlist) } label: {
+                        Label("Copy to My Playlists", systemImage: "square.on.square").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PillButtonStyle(prominent: false))
+                }
             }
             .frame(maxWidth: .infinity)
 
@@ -331,7 +391,7 @@ struct PhoneCollection: View {
             }
         }
         // Again when songs are added to it, keeping the list until they're in.
-        .task(id: source.kind == .playlist ? model.playlistEdits[source.id ?? ""] ?? 0 : 0) {
+        .task(id: playlist.map(model.revision(of:)) ?? "") {
             do { tracks = .loaded(try await load()) } catch { tracks = .failed(error.localizedDescription) }
         }
     }

@@ -24,7 +24,7 @@ The build signs with the first Developer ID (else Apple Development) identity in
 
 ## iCloud
 
-Cadence keeps its own data (not Apple Music's) in the user's private iCloud database, synced between their Mac, iPhone and iPad by `Services/CloudStore.swift` (`CKSyncEngine`, one record zone named "Cadence"). There's no sign-in: CloudKit uses the Apple ID the device is signed into. Features plug in as a `CloudRecordKind`. None do yet, so for now it only creates the zone and keeps in step. `make artwork` (and so `make check`) also syncs from its audit copy and fails if iCloud can't be reached.
+Cadence keeps its own data (not Apple Music's) in the user's private iCloud database, synced between their Mac, iPhone and iPad by `Services/CloudStore.swift` (`CKSyncEngine`, one record zone named "Cadence"). There's no sign-in: CloudKit uses the Apple ID the device is signed into. Features plug in as a `CloudRecordKind`. **My Playlists** (`Services/CadencePlaylists.swift`) is the first: Cadence's own playlists, one `Playlist` record each, holding songs by Apple Music catalog ID (or iCloud library ID for uploads) so they mean the same on every device. They can be made, copied from an Apple Music playlist (on the Mac the songs' catalog IDs come from the Apple Music API, as MusicKit only gives local IDs there), renamed, deleted, added to from any song menu, and have songs removed (any device) or reordered (iPhone and iPad). They're also on disk, so they work offline and with no iCloud; the demo library keeps its own on the device. `make artwork` (and so `make check`) also syncs from its audit copy and fails if iCloud can't be reached.
 
 Only the user's own signed copies (`make update`, releases, TestFlight) use iCloud. `make update` embeds a Developer ID profile from `scripts/asc.py mac-profile`, and `make testflight` uses the App Store profile. Check copies, the simulator and the demo library leave it off. The signing scripts add the entitlement and an Info.plist key (`CadenceCloudContainer`) only when the profile includes the container. Until then, builds are signed exactly as before.
 
@@ -33,7 +33,7 @@ Only the user's own signed copies (`make update`, releases, TestFlight) use iClo
 1. Identifiers › the filter menu › iCloud Containers › +, and register `iCloud.com.owenconti.cadence`.
 2. Identifiers › `com.owenconti.cadence` › iCloud › Configure: tick that container and save.
 
-The next `make update` (within an hour) and `make testflight` then pick it up. New record types must exist in the container's Production schema (CloudKit Console) before release builds can save them.
+The next `make update` (within an hour) and `make testflight` then pick it up. New record types must exist in the container's Production schema before builds can save them (they all use Production). `Support/CloudKit/schema.ckdb` lists them; `make cloud-schema` imports it into Development with a saved CloudKit management token (`xcrun cktool save-token --type management`), then Schema › Deploy Schema Changes… in CloudKit Console makes it live. `make artwork` says whether iCloud takes My Playlists yet.
 
 ## iPhone and iPad
 

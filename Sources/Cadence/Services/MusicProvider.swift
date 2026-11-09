@@ -36,4 +36,11 @@ protocol MusicProvider: AnyObject {
     func rename(_ playlist: PlaylistItem, to name: String) async throws -> PlaylistItem
     /// Replaces a playlist's songs: what's left after removing and reordering.
     func replaceTracks(of playlist: PlaylistItem, with tracks: [TrackItem]) async throws
+
+    /// How My Playlists keep songs: by IDs that mean the same on every
+    /// device. `playlist` is where they came from, when copying one.
+    func songRefs(for tracks: [TrackItem], from playlist: PlaylistItem?) async -> [SongRef]
+    /// My Playlists' songs, looked up, in order, under `SongRef.key`;
+    /// any that can't be found are left out.
+    func tracks(for refs: [SongRef]) async -> [TrackItem]
 }

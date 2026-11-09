@@ -55,6 +55,16 @@ enum PhoneSnapshotTour {
                 }
             }
 
+            // My Playlists: a copy of a demo playlist.
+            model.mine.removeAll()
+            if let first = playlists?.first {
+                model.navigate(.playlist(first))
+                await model.copyToMine(first).value
+                await shot("4d-my-playlist-copy", wait: 1.5)
+            }
+            model.select(.mine)
+            await shot("4e-my-playlists")
+
             model.select(.artists)
             await shot("5-artists")
             if let artist = try? await model.provider.artists().first { model.navigate(.artist(artist)) }

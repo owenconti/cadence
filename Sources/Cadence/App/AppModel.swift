@@ -15,16 +15,21 @@ struct Toast: Equatable {
     var symbol: String
 }
 
-/// Asks for a playlist's name: a new one (holding a song, if given) or a new
-/// name for one Cadence made.
+/// Asks for a playlist's name: a new one (holding a song, if given), in
+/// Apple Music or My Playlists, or a new name for one Cadence can rename. Or
+/// whether to delete one of My Playlists.
 enum PlaylistPrompt: Identifiable, Equatable {
     case create(with: TrackItem?)
+    case createMine(with: TrackItem?)
     case rename(PlaylistItem)
+    case delete(PlaylistItem)
 
     var id: String {
         switch self {
         case .create(let track): "create:\(track?.id ?? "")"
+        case .createMine(let track): "create-mine:\(track?.id ?? "")"
         case .rename(let playlist): "rename:\(playlist.id)"
+        case .delete(let playlist): "delete:\(playlist.id)"
         }
     }
 }
@@ -115,6 +120,15 @@ final class AppModel {
     private(set) var createdPlaylistIDs = Set(UserDefaults.standard.stringArray(forKey: AppModel.createdKey) ?? []) {
         didSet { UserDefaults.standard.set(Array(createdPlaylistIDs), forKey: Self.createdKey) }
     }
+    /// My Playlists: Apple Music's synced through iCloud, the demo library's
+    /// on this device only.
+    @ObservationIgnored let liveMine = CadencePlaylists(name: "my-playlists")
+    @ObservationIgnored private let demoMine = CadencePlaylists(name: "my-playlists-demo")
+    var mine: CadencePlaylists { provider.isLive ? liveMine : demoMine }
+    /// My Playlists, newest change first.
+    var myPlaylists: [PlaylistItem] { mine.all.map(\.item) }
+    /// My Playlists' songs as last looked up, with the references they're for.
+    @ObservationIgnored private var resolvedMine: [String: (refs: [SongRef], tracks: [TrackItem])] = [:]
     /// Songs just saved to a playlist, shown until Apple Music's library
     /// lists them, so the page doesn't flick back to the old order.
     @ObservationIgnored private var savedTracks: [String: [TrackItem]] = [:]
@@ -159,6 +173,8 @@ final class AppModel {
     var route: Route { stack.last ?? section.route }
 
     init() {
+        liveMine.cloud = cloud
+        cloud.register(liveMine)
         #if os(macOS)
         if ArtworkAudit.runIfRequested() { return }
         installKeyMonitor()
@@ -491,6 +507,11 @@ final class AppModel {
         editablePlaylistIDs = ids
     }
 
+    /// My Playlists, A–Z: any song can be added to them.
+    var addableMine: [PlaylistItem] {
+        myPlaylists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     /// The playlists a song can be added to, A–Z.
     var addablePlaylists: [PlaylistItem] {
         sortedPlaylists(by: .name).filter { editablePlaylistIDs.contains($0.id) }
@@ -499,6 +520,20 @@ final class AppModel {
     /// Adds a song to the end of one of the user's playlists, and says so.
     func add(_ track: TrackItem, to playlist: PlaylistItem) {
         let provider = self.provider
+        if playlist.isCadence {
+            Task {
+                let refs = await provider.songRefs(for: [track], from: nil).filter { $0.catalogID != nil || $0.libraryID != nil }
+                guard provider === self.provider, let stored = mine.playlist(id: playlist.id) else { return }
+                guard !refs.isEmpty else {
+                    show(Toast(text: "Couldn't find “\(track.title)” in Apple Music", symbol: "exclamationmark.triangle.fill"))
+                    return
+                }
+                mine.append(refs, to: stored.id)
+                mineChanged(stored.id)
+                show(Toast(text: "Added “\(track.title)” to \(stored.name)", symbol: "checkmark.circle.fill"))
+            }
+            return
+        }
         Task {
             do {
                 try await provider.add(track, to: playlist)
@@ -540,8 +575,149 @@ final class AppModel {
     /// A playlist's songs, for its page: what was just saved, until the
     /// library has caught up.
     func tracks(in playlist: PlaylistItem) async throws -> [TrackItem] {
+        if playlist.isCadence { return await myTracks(in: playlist) }
         if let saved = savedTracks[playlist.id] { return saved }
         return try await provider.tracks(in: playlist)
+    }
+
+    // MARK: My Playlists
+
+    /// One of My Playlists' songs, looked up (once, until it changes).
+    private func myTracks(in playlist: PlaylistItem) async -> [TrackItem] {
+        guard let stored = mine.playlist(id: playlist.id) else { return [] }
+        if let resolved = resolvedMine[stored.id], resolved.refs == stored.songs { return resolved.tracks }
+        let provider = self.provider
+        let tracks = await provider.tracks(for: stored.songs)
+        guard provider === self.provider else { return tracks }
+        remember(stored.id, refs: stored.songs, tracks: tracks)
+        return tracks
+    }
+
+    private func remember(_ id: String, refs: [SongRef], tracks: [TrackItem]) {
+        resolvedMine[id] = (refs, tracks)
+        playlistMosaics[CadencePlaylist.idPrefix + id] = ArtworkSource.mosaic(of: tracks)
+    }
+
+    /// Why one of My Playlists can't have this name, if it can't.
+    func problem(namingMine name: String, except playlist: PlaylistItem? = nil) -> String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return "A playlist needs a name." }
+        if myPlaylists.contains(where: { $0.id != playlist?.id && $0.name.compare(name, options: .caseInsensitive) == .orderedSame }) {
+            return "My Playlists already has one called “\(name)”."
+        }
+        return nil
+    }
+
+    /// Makes one of My Playlists (holding `track`, if given); made from
+    /// nothing, its page opens.
+    func createMine(named raw: String, with track: TrackItem? = nil) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = problem(namingMine: name) {
+            return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
+        }
+        guard let track else {
+            let made = mine.create(named: name)
+            show(Toast(text: "Created \(name)", symbol: "checkmark.circle.fill"))
+            navigate(.playlist(made.item))
+            return
+        }
+        let provider = self.provider
+        Task {
+            let refs = await provider.songRefs(for: [track], from: nil).filter { $0.catalogID != nil || $0.libraryID != nil }
+            guard provider === self.provider else { return }
+            mine.create(named: name, songs: refs)
+            show(refs.isEmpty
+                 ? Toast(text: "Created \(name), but couldn't find “\(track.title)” in Apple Music", symbol: "exclamationmark.triangle.fill")
+                 : Toast(text: "Created \(name) with “\(track.title)”", symbol: "checkmark.circle.fill"))
+        }
+    }
+
+    /// Copies a playlist into My Playlists, songs and all, and opens the copy.
+    @discardableResult
+    func copyToMine(_ playlist: PlaylistItem) -> Task<Void, Never> {
+        let provider = self.provider, moves = navigationMoves
+        show(Toast(text: "Copying \(playlist.name)…", symbol: "square.on.square"))
+        return Task {
+            let tracks: [TrackItem]
+            do {
+                tracks = try await self.tracks(in: playlist)
+            } catch {
+                guard provider === self.provider else { return }
+                show(Toast(text: "Couldn't copy \(playlist.name): \(error.localizedDescription)", symbol: "exclamationmark.triangle.fill"))
+                return
+            }
+            let refs = await provider.songRefs(for: tracks, from: playlist)
+            guard provider === self.provider else { return }
+            let found = refs.filter { $0.catalogID != nil || $0.libraryID != nil }
+            var name = playlist.name, n = 2
+            while problem(namingMine: name) != nil { name = "\(playlist.name) \(n)"; n += 1 }
+            let made = mine.create(named: name, songs: found, copiedFrom: playlist.name)
+            let missing = refs.count - found.count
+            show(missing == 0
+                 ? Toast(text: "Copied \(playlist.name) to My Playlists", symbol: "checkmark.circle.fill")
+                 : Toast(text: "Copied \(playlist.name); \(missing) of \(refs.count) songs aren't in Apple Music's catalog", symbol: "exclamationmark.triangle.fill"))
+            if moves == navigationMoves { navigate(.playlist(made.item)) }
+        }
+    }
+
+    /// Deletes one of My Playlists, leaving its page if it's open.
+    func deleteMine(_ playlist: PlaylistItem) {
+        guard playlist.isCadence else { return }
+        mine.delete(playlist.id)
+        if stack.contains(where: { if case .playlist(let open) = $0 { open.id == playlist.id } else { false } }) {
+            navigationMoves += 1
+            leavePage()
+            stack.removeAll { if case .playlist(let open) = $0 { open.id == playlist.id } else { false } }
+        }
+        show(Toast(text: "Deleted \(playlist.name)", symbol: "trash"))
+    }
+
+    /// Takes a song out of one of My Playlists (its first appearance).
+    func remove(_ track: TrackItem, from playlist: PlaylistItem) {
+        guard let stored = mine.playlist(id: playlist.id), let i = stored.songs.firstIndex(where: { $0.key == track.id }) else { return }
+        var songs = stored.songs
+        songs.remove(at: i)
+        if let resolved = resolvedMine[stored.id], resolved.refs == stored.songs,
+           let j = resolved.tracks.firstIndex(where: { $0.id == track.id }) {
+            var tracks = resolved.tracks
+            tracks.remove(at: j)
+            remember(stored.id, refs: songs, tracks: tracks)
+        }
+        mine.setSongs(stored.id, songs)
+        mineChanged(stored.id)
+        show(Toast(text: "Removed “\(track.title)” from \(stored.name)", symbol: "minus.circle.fill"))
+    }
+
+    /// A playlist as it is now: My Playlists change under open pages (renamed
+    /// here, or edited on another device).
+    func fresh(_ playlist: PlaylistItem) -> PlaylistItem {
+        playlist.isCadence ? mine.playlist(id: playlist.id)?.item ?? playlist : playlist
+    }
+
+    /// Changes when a playlist page should load its songs again.
+    func revision(of playlist: PlaylistItem) -> String {
+        let edits = playlistEdits[playlist.id] ?? 0
+        guard playlist.isCadence, let stored = mine.playlist(id: playlist.id) else { return "\(edits)" }
+        return "\(edits)|\(stored.modifiedAt.timeIntervalSince1970)"
+    }
+
+    /// Where My Playlists are kept, for their page.
+    var mineLocation: String {
+        guard provider.isLive else { return "On this device" }
+        switch cloud.status {
+        case .off: return "On this device only"
+        case .noAccount: return "Sign in to iCloud to sync"
+        case .failed: return "Couldn't sync with iCloud just now"
+        default: return "Synced with iCloud"
+        }
+    }
+
+    /// The open page and any routes to it catch up with a change.
+    private func mineChanged(_ id: String) {
+        guard let stored = mine.playlist(id: id) else { return }
+        let item = stored.item
+        playlistEdits[item.id, default: 0] += 1
+        replace(item)
     }
 
     // MARK: Managing playlists
@@ -549,7 +725,7 @@ final class AppModel {
     /// Whether a playlist can be renamed and have its songs removed and
     /// reordered: one Cadence made, on iPhone and iPad.
     func canManage(_ playlist: PlaylistItem) -> Bool {
-        provider.canEditPlaylists && createdPlaylistIDs.contains(playlist.id)
+        playlist.isCadence || provider.canEditPlaylists && createdPlaylistIDs.contains(playlist.id)
     }
 
     /// Why a playlist can't have this name, if it can't: it's empty, or
@@ -568,7 +744,9 @@ final class AppModel {
     func submit(_ prompt: PlaylistPrompt, name: String) {
         switch prompt {
         case .create(let track): createPlaylist(named: name, with: track)
+        case .createMine(let track): createMine(named: name, with: track)
         case .rename(let playlist): rename(playlist, to: name)
+        case .delete(let playlist): deleteMine(playlist)
         }
     }
 
@@ -611,6 +789,14 @@ final class AppModel {
     func rename(_ playlist: PlaylistItem, to raw: String) {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name != playlist.name else { return }
+        if playlist.isCadence {
+            if let problem = problem(namingMine: name, except: playlist) {
+                return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
+            }
+            mine.rename(playlist.id, to: name)
+            mineChanged(playlist.id)
+            return show(Toast(text: "Renamed to \(name)", symbol: "checkmark.circle.fill"))
+        }
         if let problem = problem(naming: name, except: playlist) {
             return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
         }
@@ -633,6 +819,18 @@ final class AppModel {
     /// Saves a playlist's songs after removing and reordering them.
     func saveTracks(_ tracks: [TrackItem], of playlist: PlaylistItem) {
         editingPlaylistID = nil
+        if playlist.isCadence {
+            guard let stored = mine.playlist(id: playlist.id) else { return }
+            // Songs that couldn't be looked up aren't on the page; they stay, at the end.
+            let byKey = Dictionary(stored.songs.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            let shown = Set(resolvedMine[stored.id]?.tracks.map(\.id) ?? [])
+            let songs = tracks.compactMap { byKey[$0.id] } + stored.songs.filter { !shown.contains($0.key) }
+            remember(stored.id, refs: songs, tracks: tracks)
+            mine.setSongs(stored.id, songs)
+            mineChanged(stored.id)
+            show(Toast(text: "Saved \(stored.name)", symbol: "checkmark.circle.fill"))
+            return
+        }
         // The page shows the new order straight away.
         savedTracks[playlist.id] = tracks
         let provider = self.provider
@@ -768,6 +966,7 @@ final class AppModel {
         editablePlaylistIDs = []
         playlistEdits = [:]
         savedTracks = [:]
+        resolvedMine = [:]
         editingPlaylistID = nil
         playlistPrompt = nil
     }
@@ -850,7 +1049,7 @@ final class AppModel {
             tracks = try? await provider.tracks(in: album)
             source = .album(album)
         case .playlist(let playlist):
-            tracks = try? await provider.tracks(in: playlist)
+            tracks = try? await self.tracks(in: playlist)
             source = .playlist(playlist)
         }
         guard let tracks, player.stillCurrent(claim), provider === self.provider else { return }
@@ -873,7 +1072,7 @@ final class AppModel {
         case .playlist:
             if let route = source.route {
                 navigate(route)
-            } else if let playlist = playlists.first(where: { $0.id == source.id }) {
+            } else if let playlist = (playlists + myPlaylists).first(where: { $0.id == source.id }) {
                 navigate(.playlist(playlist))
             }
         case .artist:

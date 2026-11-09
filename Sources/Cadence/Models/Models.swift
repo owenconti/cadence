@@ -94,6 +94,54 @@ struct PlaylistItem: Identifiable, Hashable, Sendable {
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// One of Cadence's own playlists (My Playlists), kept in iCloud rather
+    /// than in Apple Music's library.
+    var isCadence: Bool { id.hasPrefix(CadencePlaylist.idPrefix) }
+}
+
+/// A song in one of Cadence's own playlists: Apple Music's catalog ID where
+/// there is one (the same on every device), else the song's ID in the user's
+/// iCloud music library (songs they uploaded), plus what's needed to show it
+/// before it's looked up.
+struct SongRef: Codable, Hashable, Sendable {
+    var catalogID: String?
+    var libraryID: String?
+    var title: String
+    var artist: String
+    var album: String
+    var duration: TimeInterval
+
+    /// The ID its song is shown and played under.
+    var key: String { catalogID ?? libraryID ?? "missing:\(title)|\(artist)" }
+}
+
+/// One of Cadence's own playlists, synced through the user's iCloud.
+struct CadencePlaylist: Codable, Identifiable, Hashable, Sendable {
+    static let idPrefix = "cadence:"
+
+    let id: String
+    var name: String
+    var songs: [SongRef]
+    var createdAt: Date
+    var modifiedAt: Date
+    /// The Apple Music playlist it was copied from, by name.
+    var copiedFrom: String?
+
+    /// How the rest of the app sees it: a playlist like any other, whose ID
+    /// says it's Cadence's.
+    var item: PlaylistItem {
+        var seed: UInt64 = 14695981039346656037
+        for byte in id.utf8 { seed = (seed ^ UInt64(byte)) &* 1099511628211 }
+        return PlaylistItem(
+            id: Self.idPrefix + id,
+            name: name,
+            curator: "My Playlists",
+            summary: copiedFrom.map { "Copied from \($0)" },
+            artwork: .generated(seed: seed, style: Int(seed % 6) + 1, palette: DemoLibrary.palette(Int(seed % 97))),
+            trackCount: songs.count
+        )
+    }
 }
 
 enum PlaylistSort: String, CaseIterable {
@@ -173,7 +221,7 @@ enum Loadable<Value> {
 }
 
 enum SidebarSection: String, CaseIterable, Identifiable {
-    case discover, playlists, artists
+    case discover, playlists, artists, mine
 
     var id: String { rawValue }
 
@@ -181,6 +229,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .discover: "Discover"
         case .playlists: "Playlists"
+        case .mine: "My Playlists"
         case .artists: "Artists"
         }
     }
@@ -189,6 +238,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .discover: "sparkles"
         case .playlists: "music.note.list"
+        case .mine: "rectangle.stack.badge.person.crop"
         case .artists: "person.2.fill"
         }
     }
@@ -197,6 +247,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
         switch self {
         case .discover: .discover
         case .playlists: .playlists
+        case .mine: .myPlaylists
         case .artists: .artists
         }
     }
@@ -205,6 +256,7 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 enum Route: Hashable {
     case discover
     case playlists
+    case myPlaylists
     case artists
     case playlist(PlaylistItem)
     case album(AlbumItem)

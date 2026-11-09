@@ -1,4 +1,5 @@
 import AppKit
+import CloudKit
 import MusicKit
 import os
 
@@ -43,13 +44,29 @@ enum ArtworkAudit {
         cloud.start()
         for _ in 0..<60 {
             switch cloud.status {
-            case .synced: return "ok   iCloud: synced with \(container)"
+            case .synced: return "ok   iCloud: synced with \(container)\n" + (await playlistSchemaCheck(container))
             case .noAccount: return "FAIL iCloud: no iCloud account available to Cadence on this Mac"
             case .failed(let message): return "FAIL iCloud: \(message)"
             default: try? await Task.sleep(for: .milliseconds(500))
             }
         }
         return "FAIL iCloud: didn't sync within 30 s"
+    }
+
+    /// Whether iCloud takes My Playlists' records: saves a throwaway one and
+    /// deletes it. Until the record type is deployed to the container's
+    /// Production schema, saves fail and My Playlists stay on each device.
+    private static func playlistSchemaCheck(_ container: String) async -> String {
+        let database = CKContainer(identifier: container).privateCloudDatabase
+        let record = CKRecord(recordType: "Playlist", recordID: CloudStore.recordID("Playlist", "audit-\(UUID().uuidString)"))
+        record["name"] = "Cadence check"
+        do {
+            _ = try await database.save(record)
+            _ = try? await database.deleteRecord(withID: record.recordID)
+            return "ok   iCloud: takes My Playlists"
+        } catch {
+            return "warn iCloud: doesn't take My Playlists yet (\(error.localizedDescription)); they stay on each device until the Playlist record type is deployed"
+        }
     }
 
     private static func run() async -> [String] {

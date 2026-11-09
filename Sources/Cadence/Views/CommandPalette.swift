@@ -124,7 +124,8 @@ struct CommandPalette: View {
                 "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.phase)", "\(model.access)",
                 model.palette.addingToPlaylist?.id ?? "", "\(model.editablePlaylistIDs.count)",
                 // Names too: a renamed or replaced playlist, same count.
-                model.playlists.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
+                model.playlists.map { "\($0.id)=\($0.name)" }.joined(separator: ","),
+                model.myPlaylists.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
             .joined(separator: "|")
     }
 
@@ -142,6 +143,12 @@ struct CommandPalette: View {
                              symbol: "plus", keywords: "create make") {
                 if let named { model.createPlaylist(named: named, with: track) } else { model.playlistPrompt = .create(with: track) }
             }]
+            entries += model.addableMine.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }.map { playlist in
+                .init(id: "add:\(playlist.id)", group: "Add “\(track.title)” to", title: playlist.name,
+                      subtitle: "My Playlists · \(playlist.trackCount ?? 0) songs", artwork: model.artwork(for: playlist)) {
+                    model.add(track, to: playlist)
+                }
+            }
             entries += model.addablePlaylists.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }.map { playlist in
                 .init(id: "add:\(playlist.id)", group: "Add “\(track.title)” to", title: playlist.name,
                       subtitle: model.size(of: playlist).map { "\($0) songs" }, artwork: model.artwork(for: playlist)) {
@@ -153,11 +160,18 @@ struct CommandPalette: View {
             return
         }
         entries = commands.filter { $0.matches(query) }
-        let playlistHits = model.playlists
+        let playlistHits = (model.myPlaylists + model.playlists)
             .filter { !query.isEmpty && $0.name.localizedCaseInsensitiveContains(query) }
-            .prefix(4)
+            .prefix(5)
             .map(playlistEntry)
         entries += playlistHits
+        // On My Playlists, typing a playlist's name offers to copy it there.
+        if model.route == .myPlaylists, !query.isEmpty {
+            entries += model.sortedPlaylists(by: .name, filter: query).prefix(4).map { playlist in
+                .init(id: "copy:\(playlist.id)", group: "Copy to My Playlists", title: playlist.name,
+                      subtitle: model.size(of: playlist).map { "\($0) songs" }, symbol: "square.on.square") { model.copyToMine(playlist) }
+            }
+        }
         if query.isEmpty {
             entries += recentPlaylists
         } else {
@@ -238,8 +252,24 @@ struct CommandPalette: View {
             ]
         }
         switch model.route {
-        case .playlist(let playlist):
-            return playing(.playlist(playlist), playlist.name)
+        case .playlist(let route):
+            let playlist = model.fresh(route)
+            var list = playing(.playlist(playlist), playlist.name)
+            if playlist.isCadence {
+                list.append(.init(id: "page:rename", group: "This page", title: "Rename “\(playlist.name)”…", symbol: "pencil",
+                                  keywords: "name title playlist") { model.playlistPrompt = .rename(playlist) })
+                list.append(.init(id: "page:delete", group: "This page", title: "Delete “\(playlist.name)”…", symbol: "trash",
+                                  keywords: "remove playlist my playlists") { model.playlistPrompt = .delete(playlist) })
+            } else {
+                list.append(.init(id: "page:copy", group: "This page", title: "Copy “\(playlist.name)” to My Playlists", symbol: "square.on.square",
+                                  keywords: "duplicate save sync icloud my playlists") { model.copyToMine(playlist) })
+                if model.canManage(playlist) {
+                    list.append(.init(id: "page:rename", group: "This page", title: "Rename “\(playlist.name)”…", symbol: "pencil",
+                                      keywords: "name title playlist") { model.playlistPrompt = .rename(playlist) })
+                }
+            }
+            return list
+
         case .album(let album):
             return playing(.album(album), album.title)
         case .playlists:
@@ -342,7 +372,9 @@ struct CommandPalette: View {
 
         if model.phase == .ready {
             list.append(.init(id: "lib:new-playlist", group: "Library", title: "New playlist…", symbol: "plus", hint: "⌘N",
-                              keywords: "create make add playlist") { model.playlistPrompt = .create(with: nil) })
+                              keywords: "create make add playlist apple music") { model.playlistPrompt = .create(with: nil) })
+            list.append(.init(id: "lib:new-mine", group: "Library", title: "New playlist in My Playlists…", symbol: "rectangle.stack.badge.plus",
+                              hint: "⇧⌘N", keywords: "create make add playlist icloud sync mine") { model.playlistPrompt = .createMine(with: nil) })
         }
         list.append(.init(id: "lib:reload", group: "Library", title: "Reload library", symbol: "arrow.triangle.2.circlepath", keywords: "refresh playlists") {
             model.reloadLibrary()

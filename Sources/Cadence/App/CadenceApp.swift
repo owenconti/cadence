@@ -45,6 +45,8 @@ private struct FileMenuItems: View {
     var body: some View {
         Button("New Playlist…") { if model.phase == .ready { model.playlistPrompt = .create(with: nil) } }
             .keyboardShortcut("n")
+        Button("New Playlist in My Playlists…") { if model.phase == .ready { model.playlistPrompt = .createMine(with: nil) } }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
         Divider()
         Button("Close Window") { NSApp.appWindow?.performClose(nil) }
             .keyboardShortcut("w")
@@ -132,10 +134,19 @@ private struct PlaybackMenuItems: View {
         if let track = model.player.current {
             Menu("Add Current Song to Playlist") {
                 Button("New Playlist…") { model.playlistPrompt = .create(with: track) }
+                Button("New Playlist in My Playlists…") { model.playlistPrompt = .createMine(with: track) }
+                if !model.addableMine.isEmpty {
+                    Section("My Playlists") {
+                        ForEach(model.addableMine) { playlist in
+                            Button(playlist.name) { model.add(track, to: playlist) }
+                        }
+                    }
+                }
                 if !model.addablePlaylists.isEmpty {
-                    Divider()
-                    ForEach(model.addablePlaylists) { playlist in
-                        Button(playlist.name) { model.add(track, to: playlist) }
+                    Section("Apple Music") {
+                        ForEach(model.addablePlaylists) { playlist in
+                            Button(playlist.name) { model.add(track, to: playlist) }
+                        }
                     }
                 }
             }

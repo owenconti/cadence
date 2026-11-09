@@ -121,6 +121,14 @@ final class DemoProvider: MusicProvider {
         library.albums.first { $0.id == track.albumID }
     }
 
+    func songRefs(for tracks: [TrackItem], from playlist: PlaylistItem?) async -> [SongRef] {
+        tracks.map { SongRef(catalogID: $0.id, libraryID: nil, title: $0.title, artist: $0.artistName, album: $0.albumTitle, duration: $0.duration) }
+    }
+
+    func tracks(for refs: [SongRef]) async -> [TrackItem] {
+        (try? await tracks(withIDs: refs.map(\.key))) ?? []
+    }
+
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
         let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return ids.compactMap { byID[$0] }
@@ -141,7 +149,7 @@ final class DemoProvider: MusicProvider {
 
 // MARK: - Catalog
 
-private struct DemoLibrary {
+struct DemoLibrary {
     var artists: [ArtistItem] = []
     var albums: [AlbumItem] = []
     var tracks: [TrackItem] = []

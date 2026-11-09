@@ -1,13 +1,16 @@
 # Cadence tasks. `make` with no target lists them.
 
 .DEFAULT_GOAL := help
-.PHONY: carplay-check watch help update check perf snapshots artwork release run icon phone phone-snapshots testflight clean
+.PHONY: cloud-schema carplay-check watch help update check perf snapshots artwork release run icon phone phone-snapshots testflight clean
 
 help: ## List tasks
 	@grep -E '^[a-z][a-z-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 
 update: ## Rebuild and install /Applications/Cadence.app; a running copy offers Restart app
 	@scripts/bundle.sh
+
+cloud-schema: ## Put My Playlists' record types into iCloud's Development schema (then deploy in CloudKit Console)
+	@scripts/cloud-schema.sh
 
 watch: ## Build the Apple Watch companion for Simulator
 	@scripts/watch.sh

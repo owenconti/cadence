@@ -45,6 +45,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         withObservationTracking {
             _ = model.phase
             _ = model.playlists
+            _ = model.myPlaylists
             _ = model.discoverFeed?.recent.count
             _ = model.providerGeneration
         } onChange: {
@@ -116,13 +117,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func playlistSections() -> [CPListSection] {
-        let items = model.sortedPlaylists(by: .recent).map { playlist in
+        func item(_ playlist: PlaylistItem) -> CPListItem {
             let size = model.size(of: playlist)
             return listItem(playlist.name, size.map { "\($0) songs" } ?? playlist.curator, artwork: model.artwork(for: playlist)) { [weak self] in
                 self?.openCollection(.playlist(playlist))
             }
         }
-        return items.isEmpty ? [] : [CPListSection(items: items)]
+        let mine = model.myPlaylists.map(item)
+        let items = model.sortedPlaylists(by: .recent).map(item)
+        var sections: [CPListSection] = []
+        if !mine.isEmpty { sections.append(CPListSection(items: mine, header: "My Playlists", sectionIndexTitle: nil)) }
+        if !items.isEmpty { sections.append(CPListSection(items: items, header: mine.isEmpty ? nil : "Apple Music", sectionIndexTitle: nil)) }
+        return sections
     }
 
     private func shelfItem(_ item: ShelfItem) -> CPListItem {
@@ -139,7 +145,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             load = { [model] in try await model.provider.tracks(in: album) }
         case .playlist(let playlist):
             source = .playlist(playlist)
-            load = { [model] in try await model.provider.tracks(in: playlist) }
+            load = { [model] in try await model.tracks(in: playlist) }
         }
         let template = CPListTemplate(title: item.title, sections: [])
         template.emptyViewSubtitleVariants = ["Loading…"]

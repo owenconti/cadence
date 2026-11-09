@@ -131,12 +131,17 @@ struct TrackRow: View {
 
 struct TrackMenu: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.queueSource) private var source
     let track: TrackItem
 
     var body: some View {
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { model.player.playNext(track) }
         Button("Add to Queue", systemImage: "text.append") { model.player.addToQueue(track) }
         AddToPlaylistMenu(track: track)
+        // On one of My Playlists' pages.
+        if case .playlist(let playlist)? = source?.route, playlist.isCadence {
+            Button("Remove from Playlist", systemImage: "minus.circle") { model.remove(track, from: playlist) }
+        }
         Divider()
         Button("Go to Artist", systemImage: "person") { model.openArtist(id: track.artistID, name: track.artistName) }
         if !track.albumTitle.isEmpty {

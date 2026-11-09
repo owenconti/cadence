@@ -136,6 +136,7 @@ struct ContentArea: View {
         switch route {
         case .discover: DiscoverView()
         case .playlists: PlaylistsView()
+        case .myPlaylists: MyPlaylistsView()
         case .artists: ArtistsView()
         case .playlist(let playlist): PlaylistDetailView(playlist: playlist)
         case .album(let album): AlbumDetailView(album: album)
