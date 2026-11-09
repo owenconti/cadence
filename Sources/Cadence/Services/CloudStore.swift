@@ -48,10 +48,11 @@ final class CloudStore {
     @ObservationIgnored private var kinds: [String: any CloudRecordKind] = [:]
     @ObservationIgnored private let stateFile: URL
 
-    init() {
-        // Per bundle ID, beside the saved queue.
+    /// `directory` keeps the sync state; by default the app's own, per bundle
+    /// ID beside the saved queue (the audit passes one of its own).
+    init(directory: URL? = nil) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = support.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Cadence", isDirectory: true)
+        let directory = directory ?? support.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Cadence", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         stateFile = directory.appendingPathComponent("cloud-sync-state.json")
     }

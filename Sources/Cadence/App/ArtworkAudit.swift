@@ -26,10 +26,30 @@ enum ArtworkAudit {
             // Keep the app's own window out of the way while this runs.
             NSApp.windows.forEach { $0.orderOut(nil) }
             let report = await run()
+            try? await cloudCheck(dir).write(to: dir.appendingPathComponent("cloud.txt"), atomically: true, encoding: .utf8)
             try? report.joined(separator: "\n").write(to: dir.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
             exit(0)
         }
         return true
+    }
+
+    /// Whether this copy reaches the user's iCloud: syncs the (empty) Cadence
+    /// zone, keeping its sync state in the audit folder, not the app's.
+    private static func cloudCheck(_ dir: URL) async -> String {
+        guard let container = CloudStore.containerIdentifier else {
+            return "off  iCloud: this copy isn't signed for it (no container in its profile yet)"
+        }
+        let cloud = CloudStore(directory: dir.appendingPathComponent("cloud-state", isDirectory: true))
+        cloud.start()
+        for _ in 0..<60 {
+            switch cloud.status {
+            case .synced: return "ok   iCloud: synced with \(container)"
+            case .noAccount: return "FAIL iCloud: no iCloud account available to Cadence on this Mac"
+            case .failed(let message): return "FAIL iCloud: \(message)"
+            default: try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        return "FAIL iCloud: didn't sync within 30 s"
     }
 
     private static func run() async -> [String] {

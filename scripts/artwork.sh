@@ -16,6 +16,7 @@ open -g -n --env CADENCE_ARTWORK_AUDIT="$OUT" "$APP"
 for _ in $(seq 1 300); do [[ -f "$OUT/report.txt" ]] && break; sleep 1; done
 [[ -f "$OUT/report.txt" ]] || { pkill -f "$APP/Contents/MacOS/Cadence" || true; echo "FAIL: the audit didn't finish in 5 minutes" >&2; exit 1; }
 grep -v '^note ' "$OUT/report.txt"
+cat "$OUT/cloud.txt" 2>/dev/null && echo
 notes=$(grep -c '^note ' "$OUT/report.txt" || true)
 [[ "$notes" -gt 0 ]] && echo "($notes items have no artwork in Apple Music and show the placeholder; see $OUT/report.txt)"
-[[ "$(head -1 "$OUT/report.txt")" == PASS ]]
+! grep -q '^FAIL' "$OUT/cloud.txt" 2>/dev/null && [[ "$(head -1 "$OUT/report.txt")" == PASS ]]

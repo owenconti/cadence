@@ -24,11 +24,11 @@ The build signs with the first Developer ID (else Apple Development) identity in
 
 ## iCloud
 
-Cadence keeps its own data (not Apple Music's) in the user's private iCloud database, synced between their Mac, iPhone and iPad by `Services/CloudStore.swift` (`CKSyncEngine`, one record zone named "Cadence"). There's no sign-in: CloudKit uses the Apple ID the device is signed into. Features plug in as a `CloudRecordKind`. None do yet, so for now it only creates the zone and keeps in step.
+Cadence keeps its own data (not Apple Music's) in the user's private iCloud database, synced between their Mac, iPhone and iPad by `Services/CloudStore.swift` (`CKSyncEngine`, one record zone named "Cadence"). There's no sign-in: CloudKit uses the Apple ID the device is signed into. Features plug in as a `CloudRecordKind`. None do yet, so for now it only creates the zone and keeps in step. `make artwork` (and so `make check`) also syncs from its audit copy and fails if iCloud can't be reached.
 
 Only the user's own signed copies (`make update`, releases, TestFlight) use iCloud. `make update` embeds a Developer ID profile from `scripts/asc.py mac-profile`, and `make testflight` uses the App Store profile. Check copies, the simulator and the demo library leave it off. The signing scripts add the entitlement and an Info.plist key (`CadenceCloudContainer`) only when the profile includes the container. Until then, builds are signed exactly as before.
 
-**One-time setup:** iCloud is enabled on the App ID `com.owenconti.cadence` (done through the API). The App Store Connect API can't create or assign containers, so in the Apple Developer portal:
+**One-time setup (done):** iCloud is enabled on the App ID `com.owenconti.cadence` through the API. The App Store Connect API can't create or assign containers, so in the Apple Developer portal:
 
 1. Identifiers › the filter menu › iCloud Containers › +, and register `iCloud.com.owenconti.cadence`.
 2. Identifiers › `com.owenconti.cadence` › iCloud › Configure: tick that container and save.
