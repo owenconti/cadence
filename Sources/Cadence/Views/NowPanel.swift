@@ -47,6 +47,8 @@ struct NowPanel: View {
 
             Scrubber()
             TransportControls()
+            TempoControl()
+                .frame(maxWidth: .infinity)
 
             if let notice = model.player.notice {
                 Label(notice, systemImage: "exclamationmark.triangle.fill")

@@ -118,7 +118,8 @@ struct CommandPalette: View {
     /// offers a stale "Pause" or the previous song's album.
     private var stateKey: String {
         let player = model.player
-        return [player.current?.id ?? "", "\(player.isPlaying)", "\(player.isShuffled)", "\(model.sidebarHidden)",
+        let tempo = player.current.map { "\(model.tempo.rate(for: $0))/\(model.tempo.bpm(for: $0) ?? 0)" } ?? ""
+        return [player.current?.id ?? "", tempo, "\(player.isPlaying)", "\(player.isShuffled)", "\(model.sidebarHidden)",
                 "\(model.nowPlayingMode)", "\(model.stack.count)", "\(model.update.isReady)", "\(model.route)",
                 "\(model.playlistSort)", "\(model.showAllPopular)", "\(model.popularSongCount)",
                 "\(String(describing: model.canPlayCatalog))", "\(model.provider.isLive)", "\(model.phase)", "\(model.access)",
@@ -349,6 +350,20 @@ struct CommandPalette: View {
                 .init(id: "cmd:next", group: "Playback", title: "Next track", symbol: "forward.fill", hint: "⌘→", keywords: "skip") { player.next() },
                 .init(id: "cmd:previous", group: "Playback", title: "Previous track", symbol: "backward.fill", hint: "⌘←", keywords: "back restart song") { player.previous() },
             ]
+            // Tempo: kept for the song, so it plays this way every time.
+            let tempo = model.tempo
+            let known = tempo.bpm(for: track) != nil
+            let now = tempo.playingBPM(for: track).map { "Now \(Int($0.rounded())) BPM" } ?? "Now \(Int((tempo.rate(for: track) * 100).rounded()))% speed"
+            list += [
+                .init(id: "cmd:faster", group: "Playback", title: known ? "Faster (+1 BPM)" : "Faster (+2%)", subtitle: now,
+                      symbol: "hare", hint: "⌥⌘↑", keywords: "tempo bpm speed up quicker increase rate") { model.nudgeTempo(by: 1) },
+                .init(id: "cmd:slower", group: "Playback", title: known ? "Slower (−1 BPM)" : "Slower (−2%)", subtitle: now,
+                      symbol: "tortoise", hint: "⌥⌘↓", keywords: "tempo bpm speed slow down decrease rate") { model.nudgeTempo(by: -1) },
+            ]
+            if tempo.isAdjusted(track) {
+                list.append(.init(id: "cmd:tempo-reset", group: "Playback", title: "Original tempo", subtitle: tempo.bpm(for: track).map { "\(Int($0.rounded())) BPM" },
+                                  symbol: "arrow.counterclockwise", keywords: "tempo bpm speed reset normal original rate") { model.resetTempo() })
+            }
         }
         // Like the Playback menu: shuffle is a mode, set even with nothing playing.
         list.append(.init(id: "cmd:shuffle", group: "Playback", title: player.isShuffled ? "Turn shuffle off" : "Turn shuffle on",

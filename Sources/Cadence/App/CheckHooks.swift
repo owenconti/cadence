@@ -27,7 +27,8 @@ import notify
 ///   whether it refuses songs), `play-playlist N`, `add-to-queue N I` (song I
 ///   of playlist N; -1 for the last), `toggle`, `wait S`, `play-duplicates N
 ///   [shuffled]` (A, B, A, C from entry N, shuffle mode on or off),
-///   `add-to-playlist N I P` (song I of playlist N, to playlist P).
+///   `add-to-playlist N I P` (song I of playlist N, to playlist P), `tempo N`
+///   (the playing song N BPM faster, or slower if negative), `tempo reset`.
 /// - `play-duplicates`: plays A, B, A, C from the second A; `play-duplicates-first`
 ///   from the first.
 /// - `type-glass`: types "glass" into the window, as the keyboard would.
@@ -211,6 +212,11 @@ enum CheckHooks {
             "engineIndex": (model.player.engine as? SimulatedEngine)?.index ?? -1,
             "enginePlaying": model.player.engine.isPlaying,
             "engineTime": model.player.engine.playbackTime,
+            "engineRate": model.player.engine.rate,
+            "clock": Date().timeIntervalSince1970,
+            "tempoRate": model.player.desiredRate,
+            "tempoBPM": model.player.current.flatMap { model.tempo.bpm(for: $0) } ?? 0,
+            "trackID": model.player.current?.id ?? "",
             "snapshot": (try? String(contentsOf: dir.appendingPathComponent("snapshot.txt"), encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             "queueIDs": model.player.queue.map(\.id).joined(separator: ","),
@@ -309,6 +315,9 @@ enum CheckHooks {
             model.saveTracks(words[2] == "reverse" ? tracks.reversed() : Array(tracks.dropFirst()), of: target)
         case "toggle":
             model.player.toggle()
+        case "tempo":
+            guard words.count > 1 else { return }
+            if words[1] == "reset" { model.resetTempo() } else { model.nudgeTempo(by: Int(words[1]) ?? 0) }
         case "play-duplicates":
             guard let playlist = model.playlists.first,
                   let tracks = try? await model.provider.tracks(in: playlist), tracks.count >= 3 else { return }

@@ -20,6 +20,7 @@ struct NowPlayingView: View {
                             titles(track)
                             Scrubber()
                             TransportControls(large: true)
+                            TempoControl(large: true)
                         }
                         .frame(width: max(art, 360))
                         Spacer(minLength: 0)

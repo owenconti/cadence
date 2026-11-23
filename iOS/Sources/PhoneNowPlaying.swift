@@ -59,6 +59,7 @@ struct PhoneNowPlaying: View {
                     titles(track)
                     Scrubber()
                     TransportControls(large: true)
+                    TempoControl(large: true)
                 }
                 .padding(.top, 16)
                 .padding(.bottom, 12)

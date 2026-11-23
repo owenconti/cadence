@@ -131,6 +131,15 @@ private struct PlaybackMenuItems: View {
             .keyboardShortcut(.rightArrow)
         Button("Previous Track") { model.player.previous() }
             .keyboardShortcut(.leftArrow)
+        Divider()
+        Button("Faster") { model.nudgeTempo(by: 1) }
+            .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+            .disabled(model.player.current == nil)
+        Button("Slower") { model.nudgeTempo(by: -1) }
+            .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+            .disabled(model.player.current == nil)
+        Button("Original Tempo") { model.resetTempo() }
+            .disabled(model.player.current.map { !model.tempo.isAdjusted($0) } ?? true)
         if let track = model.player.current {
             Menu("Add Current Song to Playlist") {
                 Button("New Playlist…") { model.playlistPrompt = .create(with: track) }

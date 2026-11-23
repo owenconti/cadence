@@ -222,6 +222,35 @@ press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuf
 [[ "$(state upNextAll)" == "$expected" ]] || fail "after reopening, shuffle off put a song queued twice out of order: $(state upNextAll) instead of $expected"
 echo "ok   shuffled with a song queued twice, reopened, shuffle off: back in order"
 
+# Tempo: each song's is measured once, and a speed chosen for a song is kept
+# for it, across other songs and quitting.
+steps "play-playlist 0" "wait 1.5" || fail "steps didn't run"
+song=$(state trackID); bpm=$(state tempoBPM)
+python3 -c "import sys; sys.exit(0 if 60 <= $bpm <= 200 else 1)" || fail "the song's tempo wasn't measured: $bpm"
+steps "tempo reset" "tempo 6" "wait 0.6" || fail "steps didn't run"
+rate=$(state tempoRate)
+python3 -c "import sys; sys.exit(0 if abs($rate - (round($bpm) + 6) / $bpm) < 0.001 else 1)" || fail "6 BPM faster gave a speed of $rate for a $bpm BPM song"
+python3 -c "import sys; sys.exit(0 if abs($(state engineRate) - $rate) < 0.001 else 1)" || fail "the player didn't take the song's new speed ($(state engineRate), not $rate)"
+timed() { snapshot && python3 -c "import json; s=json.load(open('$OUT/state.json')); print(s['engineTime'], s['clock'])"; }
+read -r p1 c1 < <(timed); sleep 2; read -r p2 c2 < <(timed)
+python3 -c "import sys; sys.exit(0 if abs(($p2 - $p1) / ($c2 - $c1) - $rate) < 0.05 else 1)" || fail "at speed $rate the song moved $p1 → $p2 while the clock moved $c1 → $c2"
+steps "play-playlist 2" "wait 1" || fail "steps didn't run"
+[[ "$(state trackID)" != "$song" ]] || fail "playlist 2 starts with the same song"
+python3 -c "import sys; sys.exit(0 if abs($(state engineRate) - 1) < 0.001 else 1)" || fail "another song took the first one's speed: $(state engineRate)"
+steps "play-playlist 0" "wait 1" || fail "steps didn't run"
+python3 -c "import sys; sys.exit(0 if abs($(state engineRate) - $rate) < 0.001 else 1)" || fail "playing the song again didn't bring back its speed: $(state engineRate)"
+pid=$(state pid)
+post quit; sleep 2
+open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
+[[ "$(state pid)" != "$pid" && "$(state trackID)" == "$song" ]] || fail "didn't reopen on the same song"
+steps "toggle" "wait 1" || fail "steps didn't run"
+python3 -c "import sys; sys.exit(0 if abs($(state engineRate) - $rate) < 0.001 and $(state tempoBPM) == $bpm else 1)" \
+    || fail "after quitting, the song played at $(state engineRate) (wanted $rate), tempo $(state tempoBPM)"
+steps "tempo reset" "wait 0.6" || fail "steps didn't run"
+python3 -c "import sys; sys.exit(0 if abs($(state engineRate) - 1) < 0.001 else 1)" || fail "Original tempo left the song at $(state engineRate)"
+in_step "tempo"
+echo "ok   a song's tempo is measured ($bpm BPM); +6 BPM plays it at ${rate:0:5}×, only that song, and still after quitting; reset puts it back"
+
 # ⌘W closes the window but the app keeps running, and playing; ⌘0 and
 # reopening the app (as a Dock click does) bring the window back.
 steps "play-playlist 0" "wait 1" || fail "steps didn't run"

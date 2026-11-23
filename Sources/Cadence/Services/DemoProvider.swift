@@ -125,6 +125,14 @@ final class DemoProvider: MusicProvider {
         tracks.map { SongRef(catalogID: $0.id, libraryID: nil, title: $0.title, artist: $0.artistName, album: $0.albumTitle, duration: $0.duration) }
     }
 
+    /// Demo songs have no audio: each gets a steady made-up tempo, 78–171 BPM.
+    func tempoSource(for track: TrackItem) async -> TempoSource {
+        try? await Task.sleep(for: .milliseconds(150))
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in track.id.utf8 { hash = (hash ^ UInt64(byte)) &* 1_099_511_628_211 }
+        return TempoSource(key: track.id, knownBPM: Double(78 + hash % 94))
+    }
+
     func tracks(for refs: [SongRef]) async -> [TrackItem] {
         (try? await tracks(withIDs: refs.map(\.key))) ?? []
     }

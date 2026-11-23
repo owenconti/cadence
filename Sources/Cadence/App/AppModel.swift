@@ -57,6 +57,8 @@ final class AppModel {
     private(set) var providerGeneration = 0
     let player = Player()
     let palette = PaletteModel()
+    /// Each song's tempo and the speed the user chose for it.
+    let tempo = TempoStore()
     /// Cadence's own data in the user's iCloud; on for Apple Music in the
     /// user's own signed copy only.
     let cloud = CloudStore()
@@ -173,6 +175,12 @@ final class AppModel {
     var route: Route { stack.last ?? section.route }
 
     init() {
+        player.rateFor = { [tempo] track in tempo.rate(for: track) }
+        player.onSongChange = { [tempo] track, next in
+            tempo.prepare(track)
+            if let next { tempo.prepare(next) }
+        }
+        tempo.onChange = { [player] in player.applyRate() }
         liveMine.cloud = cloud
         cloud.register(liveMine)
         #if os(macOS)
@@ -364,6 +372,7 @@ final class AppModel {
         player.backend = backend
         resetPlaylistCounts()
         self.provider = provider
+        tempo.provider = provider
         providerGeneration += 1
         discoverFeed = nil
         stack = []
@@ -1046,6 +1055,21 @@ final class AppModel {
     }
 
     // MARK: Playback helpers
+
+    // MARK: Tempo
+
+    /// The playing song a beat per minute faster (`steps` > 0) or slower,
+    /// from now on.
+    func nudgeTempo(by steps: Int) {
+        guard let track = player.current else { return }
+        tempo.nudge(track, by: steps)
+    }
+
+    /// The playing song back at its recorded speed.
+    func resetTempo() {
+        guard let track = player.current else { return }
+        tempo.reset(track)
+    }
 
     func play(_ tracks: [TrackItem], startAt index: Int = 0, shuffled: Bool? = nil, from source: QueueSource? = nil) {
         player.play(tracks, startAt: index, shuffled: shuffled, from: source)

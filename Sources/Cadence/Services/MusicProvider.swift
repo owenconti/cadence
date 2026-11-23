@@ -43,4 +43,7 @@ protocol MusicProvider: AnyObject {
     /// My Playlists' songs, looked up, in order, under `SongRef.key`;
     /// any that can't be found are left out.
     func tracks(for refs: [SongRef]) async -> [TrackItem]
+
+    /// Where a song's tempo is kept and how to measure it.
+    func tempoSource(for track: TrackItem) async -> TempoSource
 }

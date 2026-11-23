@@ -21,6 +21,8 @@ protocol LiveEngine: AnyObject {
     func skipToPrevious() async throws
     var playbackTime: TimeInterval { get set }
     var isPlaying: Bool { get }
+    /// Playback speed: 1 as recorded, 1.1 a tenth faster.
+    var rate: Double { get set }
     /// Adds a song after the current entry or at the end. Throws if it can't
     /// be queued.
     func insert(_ track: TrackItem, afterCurrent: Bool) async throws
@@ -65,6 +67,11 @@ final class MusicKitEngine: LiveEngine {
     }
 
     var isPlaying: Bool { player.state.playbackStatus == .playing }
+
+    var rate: Double {
+        get { Double(player.state.playbackRate) }
+        set { player.state.playbackRate = Float(newValue) }
+    }
 
     func insert(_ track: TrackItem, afterCurrent: Bool) async throws {
         guard let song = track.song else { throw EngineError.notInAppleMusic }
@@ -121,6 +128,8 @@ final class SimulatedEngine: LiveEngine {
     /// Time into the current entry when it was last paused or started, and when.
     private var base: TimeInterval = 0
     private var since = Date()
+    /// Song time runs this much faster than the clock.
+    private var speed = 1.0
 
     func setQueue(_ tracks: [TrackItem], startingAt start: Int) {
         entries = tracks
@@ -172,7 +181,7 @@ final class SimulatedEngine: LiveEngine {
     var playbackTime: TimeInterval {
         get {
             advanceIfFinished()
-            return playing ? base + Date().timeIntervalSince(since) : base
+            return playing ? base + Date().timeIntervalSince(since) * speed : base
         }
         set {
             base = max(0, newValue)
@@ -185,10 +194,19 @@ final class SimulatedEngine: LiveEngine {
         return playing
     }
 
+    var rate: Double {
+        get { speed }
+        set {
+            base = playbackTime
+            since = Date()
+            speed = newValue
+        }
+    }
+
     /// Moves on to the next entry once the current one has played through.
     private func advanceIfFinished() {
         guard playing, let index, entries.indices.contains(index) else { return }
-        let elapsed = base + Date().timeIntervalSince(since)
+        let elapsed = base + Date().timeIntervalSince(since) * speed
         guard elapsed >= entries[index].duration else { return }
         move(by: 1)
     }

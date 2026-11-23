@@ -246,6 +246,23 @@ final class MusicKitProvider: MusicProvider {
         }
     }
 
+    // MARK: Tempo
+
+    /// A song's tempo is kept under its catalog ID, so it's the same song from
+    /// a playlist, an album or a search, and on every device. Its preview
+    /// comes from the catalog; songs the catalog doesn't have (uploads) get
+    /// their own ID and nothing to measure.
+    func tempoSource(for track: TrackItem) async -> TempoSource {
+        let ref = await Self.songRef(for: track)
+        guard let catalogID = ref.catalogID else { return TempoSource(key: track.id) }
+        if !Self.isLibrary(track), let url = track.song?.previewAssets?.first?.url {
+            return TempoSource(key: catalogID, preview: url)
+        }
+        let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(catalogID))
+        let song = try? await request.response().items.first
+        return TempoSource(key: catalogID, preview: song?.previewAssets?.first?.url)
+    }
+
     private static func isLibrary(_ track: TrackItem) -> Bool {
         playParameters(of: track)?["isLibrary"] as? Bool ?? false
     }

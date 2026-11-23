@@ -65,7 +65,11 @@ Each upload's build number is the commit count, so every upload needs a new comm
 | Now panel | Artwork, scrubber, transport, and the Up Next queue. The artwork compacts on short windows so the queue keeps its space |
 | Command palette | ⌘K searches songs, artists, albums and playlists, and runs every app action (navigation, playback, reload library, Restart app), all from the keyboard |
 
-Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 sections · ⌘[ back · ⌘K search · ⌘B hide sidebar · ⇧⌘F Now Playing · ⌘W close the window (music keeps playing) · ⌘0 or the Dock icon bring it back · ⌥⌘R restart app · Esc close. Drag the inner edge of the sidebar or the Now panel to resize it; double-click to reset. In ⌘K, ⌘↩ plays the selected song next and ⌥↩ adds it to the queue.
+Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌥⌘↑ / ⌥⌘↓ a beat per minute faster/slower · ⌘1–3 sections · ⌘[ back · ⌘K search · ⌘B hide sidebar · ⇧⌘F Now Playing · ⌘W close the window (music keeps playing) · ⌘0 or the Dock icon bring it back · ⌥⌘R restart app · Esc close. Drag the inner edge of the sidebar or the Now panel to resize it; double-click to reset. In ⌘K, ⌘↩ plays the selected song next and ⌥↩ adds it to the queue.
+
+## Tempo
+
+Now Playing shows the song's tempo in beats per minute, with − and + to slow it down or speed it up a beat per minute at a time (hold to keep going; click the tempo to go back to the original). The speed is kept for the song, so it plays that way every time, from any playlist, album or search. Apple Music's streams are protected, so `Services/TempoDetector.swift` measures the song's 30-second catalog preview instead (spectral-flux onsets, then autocorrelation with a prior around 120 BPM; plain AVFoundation and Accelerate, so the same on iPhone). On 17 well-known songs it got 15 within a beat, one at half tempo and one wrong. `Services/TempoStore.swift` keeps each song's tempo and speed under its catalog ID in `song-tempos.json` in Application Support, on each device (not iCloud yet). Songs with no catalog match (uploads) have no preview; they change speed in 2% steps. The speed is Apple Music's playback rate (0.5–2×), which the player re-applies on every song change. The demo library gives each song a made-up tempo, and `make check` speeds a song up and confirms only that song plays faster, including after quitting.
 
 ## Code map
 
@@ -74,6 +78,7 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌘1–3 section
 - `Services/MusicKitProvider.swift`: live library and catalog (recently played, personal recommendations, charts, search)
 - `Services/DemoProvider.swift`: offline catalog
 - `Services/Player.swift`: the queue and what should play; commands reach the engine one at a time, in order
+- `Services/TempoDetector.swift`, `Services/TempoStore.swift`: songs' measured tempos and the speed chosen for each
 - `Services/LiveEngine.swift`: what plays it: Apple Music (`MusicKitEngine`) or `SimulatedEngine` for the demo library, which `make check` also slows down or makes refuse songs
 - `App/AppUpdate.swift`: notices a newer build on disk, and Restart app with its playback handoff
 - `App/RunMode.swift`, `App/CheckHooks.swift`: throwaway copies for `make check` and `make snapshots`

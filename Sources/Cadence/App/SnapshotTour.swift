@@ -27,6 +27,9 @@ enum SnapshotTour {
                 model.player.seek(to: 48)
             }
             await shot("2-discover-playing", wait: 2)
+            model.nudgeTempo(by: 6)
+            await shot("2a-tempo-faster", wait: 0.8)
+            model.resetTempo()
 
             if let first = playlists?.first { model.navigate(.playlist(first)) }
             await shot("3-playlist")

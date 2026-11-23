@@ -58,6 +58,15 @@ final class Player {
     /// the saved queue, can tell it's been overtaken.
     @ObservationIgnored private(set) var revision = 0
 
+    /// The speed each song plays at (1 is as recorded); see `TempoStore`.
+    @ObservationIgnored var rateFor: (@MainActor (TrackItem) -> Double)?
+    /// Told when a different song (or copy of one) becomes current, with the
+    /// one after it, so their tempos can be looked up ahead of time.
+    @ObservationIgnored var onSongChange: (@MainActor (TrackItem, TrackItem?) -> Void)?
+    @ObservationIgnored private var announcedKey: Int?
+    /// The speed last given to the engine, for which entry, and when.
+    @ObservationIgnored private var appliedRate: (key: Int, rate: Double, at: Date)?
+
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var lastUnmatchedEntry: String?
     private static let log = Logger(subsystem: "com.owenconti.cadence", category: "player")
@@ -197,7 +206,13 @@ final class Player {
         setPlaying(intent: !wantsPlaying)
         // Acts on the latest intent when its turn comes.
         live { engine in
-            if self.wantsPlaying { try await engine.play() } else { engine.pause() }
+            if self.wantsPlaying {
+                try await engine.play()
+                self.appliedRate = nil
+                self.applyRate()
+            } else {
+                engine.pause()
+            }
         }
     }
 
@@ -389,7 +404,9 @@ final class Player {
         if pendingStarts == 0 {
             position = engine.playbackTime
             syncCurrentEntry()
+            applyRate()
         }
+        announceSong()
         // The play state, though, is only believed once commands have landed.
         guard pendingCommands == 0, Date().timeIntervalSince(settledAt) > 1 else { return }
         let playing = engine.isPlaying
@@ -426,6 +443,35 @@ final class Player {
         }
     }
 
+    // MARK: Tempo
+
+    /// The speed the current song should play at.
+    var desiredRate: Double {
+        guard let current else { return 1 }
+        return rateFor?(current) ?? 1
+    }
+
+    /// Puts the engine at the current song's speed. Only while it plays:
+    /// setting a speed on a paused player can start it. Apple Music can drop
+    /// back to normal speed on a new song or after play, so this runs every
+    /// tick; it re-sends only when the song or speed changed, or the engine
+    /// has drifted (at most every 2 s, in case it won't take the speed).
+    func applyRate() {
+        guard pendingStarts == 0, let index, keys.indices.contains(index), engine.isPlaying else { return }
+        let key = keys[index], rate = desiredRate
+        if let applied = appliedRate, applied.key == key, abs(applied.rate - rate) < 0.0005 {
+            guard abs(engine.rate - rate) > 0.005, Date().timeIntervalSince(applied.at) > 2 else { return }
+        }
+        engine.rate = rate
+        appliedRate = (key, rate, Date())
+    }
+
+    private func announceSong() {
+        guard let index, keys.indices.contains(index), let current, announcedKey != keys[index] else { return }
+        announcedKey = keys[index]
+        onSongChange?(current, upNext.first)
+    }
+
     // MARK: Engine
 
     /// Gives the engine the queue as it is now, starting at `start`. Whether
@@ -445,6 +491,8 @@ final class Player {
                 guard generation == self.liveGeneration else { return }
                 if position > 0 { engine.playbackTime = position }
                 if self.wantsPlaying { try await engine.play() } else { engine.pause() }
+                self.appliedRate = nil
+                self.applyRate()
             } catch {
                 Self.log.error("couldn't start playing: \(error.localizedDescription, privacy: .public)")
                 self.report(error.localizedDescription)
