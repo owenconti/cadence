@@ -22,6 +22,7 @@ struct PhoneNowPlaying: View {
                     }
                     .accessibilityLabel("Close Now Playing")
                     Spacer()
+                    CrossfadeMenu()
                     Button { showingQueue.toggle() } label: {
                         Image(systemName: "list.bullet")
                             .font(.system(size: 15, weight: .bold))

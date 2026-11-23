@@ -23,6 +23,9 @@ protocol LiveEngine: AnyObject {
     var isPlaying: Bool { get }
     /// Playback speed: 1 as recorded, 1.1 a tenth faster.
     var rate: Double { get set }
+    /// Seconds each song fades into the next; 0 for none. Only Apple Music
+    /// on iPhone and iPad can (iOS 18's player transitions); see `Player.canCrossfade`.
+    var crossfade: TimeInterval { get set }
     /// Adds a song after the current entry or at the end. Throws if it can't
     /// be queued.
     func insert(_ track: TrackItem, afterCurrent: Bool) async throws
@@ -71,6 +74,14 @@ final class MusicKitEngine: LiveEngine {
     var rate: Double {
         get { Double(player.state.playbackRate) }
         set { player.state.playbackRate = Float(newValue) }
+    }
+
+    var crossfade: TimeInterval = 0 {
+        didSet {
+            #if os(iOS)
+            player.transition = crossfade > 0 ? .crossfade(duration: crossfade) : .none
+            #endif
+        }
     }
 
     func insert(_ track: TrackItem, afterCurrent: Bool) async throws {
@@ -130,6 +141,8 @@ final class SimulatedEngine: LiveEngine {
     private var since = Date()
     /// Song time runs this much faster than the clock.
     private var speed = 1.0
+    /// Kept so checks can see it; the demo library has no audio to fade.
+    var crossfade: TimeInterval = 0
 
     func setQueue(_ tracks: [TrackItem], startingAt start: Int) {
         entries = tracks

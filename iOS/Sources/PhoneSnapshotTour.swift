@@ -79,6 +79,9 @@ enum PhoneSnapshotTour {
             model.select(.discover)
             model.toggleNowPlayingMode()
             await shot("9-now-playing")
+            model.player.crossfade = 8
+            await shot("9a-crossfade-on", wait: 0.6)
+            model.player.crossfade = 0
             model.toggleNowPlayingMode()
 
             // The iPad in landscape: the Mac's three columns. iPadOS won't let

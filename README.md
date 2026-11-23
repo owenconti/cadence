@@ -71,6 +71,10 @@ Shortcuts: Space play/pause · ⌘→ / ⌘← next/previous · ⌥⌘↑ / ⌥�
 
 Now Playing shows the song's tempo in beats per minute, with − and + to slow it down or speed it up a beat per minute at a time (hold to keep going; click the tempo to go back to the original). The speed is kept for the song, so it plays that way every time, from any playlist, album or search. Apple Music's streams are protected, so `Services/TempoDetector.swift` measures the song's 30-second catalog preview instead (spectral-flux onsets, then autocorrelation with a prior around 120 BPM; plain AVFoundation and Accelerate, so the same on iPhone). On 17 well-known songs it got 15 within a beat, one at half tempo and one wrong. `Services/TempoStore.swift` keeps each song's tempo and speed under its catalog ID in `song-tempos.json` in Application Support, on each device (not iCloud yet). Songs with no catalog match (uploads) have no preview; they change speed in 2% steps. The speed is Apple Music's playback rate (0.5–2×), which the player re-applies on every song change. The demo library gives each song a made-up tempo, and `make check` speeds a song up and confirms only that song plays faster, including after quitting.
 
+## Crossfade
+
+On iPhone and iPad, the crossfade button in Now Playing (the Now panel's header on a full-width iPad) fades each song into the next over 3, 5, 8, 10 or 12 seconds, or turns it off. It's kept on the device. It uses the player transitions Apple added in iOS 18 (`ApplicationMusicPlayer.transition`), which the Mac's MusicKit doesn't have, so the Mac doesn't offer it.
+
 ## Code map
 
 - `Services/MusicProvider.swift`: the protocol the UI depends on

@@ -10,8 +10,31 @@ final class Player {
     enum Backend { case demo, musicKit }
 
     var backend: Backend = .demo {
-        didSet { engine = backend == .musicKit ? MusicKitEngine() : SimulatedEngine() }
+        didSet {
+            engine = backend == .musicKit ? MusicKitEngine() : SimulatedEngine()
+            engine.crossfade = crossfade
+        }
     }
+
+    /// Whether songs can fade into each other here: Apple's player only
+    /// offers it on iPhone and iPad.
+    static var canCrossfade: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Seconds each song fades into the next (0: off). Kept on this device.
+    var crossfade: TimeInterval = Player.canCrossfade ? UserDefaults.standard.double(forKey: Player.crossfadeKey) : 0 {
+        didSet {
+            UserDefaults.standard.set(crossfade, forKey: Self.crossfadeKey)
+            engine.crossfade = crossfade
+        }
+    }
+    static let crossfadeChoices: [TimeInterval] = [3, 5, 8, 10, 12]
+    private static let crossfadeKey = "cadence.crossfade"
     /// What plays the music. Every command reaches it through `live`, in order.
     @ObservationIgnored private(set) var engine: LiveEngine = SimulatedEngine()
 
@@ -109,6 +132,7 @@ final class Player {
     }
 
     init() {
+        engine.crossfade = crossfade
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(250))
