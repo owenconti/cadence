@@ -138,7 +138,7 @@ struct LoadingRows: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if showAlbum { bar(100, 10).frame(maxWidth: .infinity, alignment: .leading) }
-                    Color.clear.frame(width: 24)
+                    Color.clear.frame(width: TrackMenuButton.size)
                     bar(30, 10).frame(width: 40, alignment: .trailing)
                 }
                 .padding(.horizontal, 12)

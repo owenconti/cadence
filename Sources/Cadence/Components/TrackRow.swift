@@ -63,22 +63,14 @@ struct TrackRow: View {
 
             // A Menu is a full AppKit control, so on the Mac only the hovered
             // row has one. A phone has no hover, so every row does.
-            Group {
+            // A ZStack, not a Group: the column keeps its width with no menu
+            // in it, so hovering doesn't shift the row.
+            ZStack {
                 if hovering || Self.menuAlways {
-                    Menu {
-                        TrackMenu(track: track)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.secondary)
-                            .frame(width: 24, height: 24)
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .menuIndicator(.hidden)
+                    TrackMenuButton(track: track)
                 }
             }
-            .frame(width: 24)
+            .frame(width: TrackMenuButton.size)
 
             Text(track.duration.clock)
                 .font(.system(size: 12).monospacedDigit())
@@ -105,8 +97,12 @@ struct TrackRow: View {
                 Image(systemName: isCurrent && model.player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Theme.text)
+                    // The whole cell, not just the glyph's pixels.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(height: 38)
         } else if isCurrent {
             EqualizerBars(active: model.player.isPlaying)
         } else if let number {
@@ -126,6 +122,35 @@ struct TrackRow: View {
         // The row's own place in the list: a playlist can hold a song twice.
         let index = rowIndex ?? context.firstIndex(of: track) ?? 0
         model.play(context.isEmpty ? [track] : context, startAt: index, from: source)
+    }
+}
+
+/// A song row's ⋯ menu. Its whole square takes the click (a plain menu's is
+/// only the dots' pixels, so a near miss played the song instead), and it
+/// lights up under the pointer.
+struct TrackMenuButton: View {
+    static let size: CGFloat = 32
+    let track: TrackItem
+    @State private var hovering = false
+
+    var body: some View {
+        Menu {
+            TrackMenu(track: track)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(hovering ? Theme.text : Theme.secondary)
+                .frame(width: Self.size, height: Self.size)
+                .background(Circle().fill(hovering ? Theme.cardHover : .clear))
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .accessibilityLabel("More for \(track.title)")
     }
 }
 
@@ -162,7 +187,7 @@ struct TrackListHeader: View {
             if showArtwork { Color.clear.frame(width: 38, height: 1) }
             Text("TITLE").frame(maxWidth: .infinity, alignment: .leading)
             if showAlbum { Text("ALBUM").frame(maxWidth: .infinity, alignment: .leading) }
-            Color.clear.frame(width: 24, height: 1)
+            Color.clear.frame(width: TrackMenuButton.size, height: 1)
             Image(systemName: "clock").frame(width: 40, alignment: .trailing)
         }
         .eyebrow()
