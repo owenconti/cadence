@@ -170,6 +170,29 @@ press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuf
 [[ "$(state upNextAll)" == "$inorder" ]] || fail "shuffle on then off changed the order of a queue with a song in it twice"
 echo "ok   ⌘S on and off puts a queue with a song in it twice back in order"
 
+# Shuffled: songs added to the queue play before the rest (each after those
+# added before it), stay next when another song is picked, through shuffle
+# off and on, and across quitting.
+steps "play-playlist 0 shuffled" "wait 1" "add-to-queue 1 0" "wait 0.3" "add-to-queue 1 -1" "wait 0.3" || fail "steps didn't run"
+queued=$(state queuedIDs)
+[[ "$queued" == *,* ]] || fail "shuffled, two songs added to the queue weren't both queued: '$queued'"
+[[ "$(state upNextAll)" == "$queued"* ]] || fail "shuffled, songs added to the queue aren't next: up next is $(state upNextAll), queued $queued"
+in_step "adding to a shuffled queue"
+steps "pick 0 3" "wait 1" || fail "steps didn't run"
+[[ "$(state queuedIDs)" == "$queued" && "$(state upNextAll)" == "$queued"* ]] || fail "picking another song while shuffled lost the queued songs: $(state upNextAll)"
+in_step "picking a song while shuffled"
+press cmd-s && [[ "$(state shuffled)" == False ]] || fail "⌘S didn't turn shuffle off"
+[[ "$(state upNextAll)" == "$queued"* ]] || fail "turning shuffle off moved the queued songs: $(state upNextAll)"
+press cmd-s && [[ "$(state shuffled)" == True ]] || fail "⌘S didn't turn shuffle back on"
+[[ "$(state upNextAll)" == "$queued"* ]] || fail "turning shuffle on moved the queued songs: $(state upNextAll)"
+in_step "shuffle off and on with queued songs"
+pid=$(state pid)
+post quit; sleep 2
+open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
+[[ "$(state pid)" != "$pid" ]] || fail "still talking to the copy that was asked to quit"
+[[ "$(state queuedIDs)" == "$queued" ]] || fail "quitting forgot the queued songs: '$(state queuedIDs)' instead of '$queued'"
+echo "ok   shuffled, songs added to the queue play next, through picking another song, shuffle off and on, and quitting"
+
 # The player's timing paths, with the simulated engine slowed down or
 # refusing, as Apple Music can be.
 steps "sim prepare=2" "play-playlist 0" "toggle" "wait 3" "sim prepare=0" || fail "steps didn't run"

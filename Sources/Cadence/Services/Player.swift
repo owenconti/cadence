@@ -50,8 +50,14 @@ final class Player {
     private(set) var position: TimeInterval = 0
     /// Where the queue came from (a playlist, album, …).
     private(set) var source: QueueSource?
-    /// Shuffle mode: songs after the current one play in random order.
+    /// Shuffle mode: songs after the current one play in random order, after
+    /// any you queued.
     private(set) var isShuffled = false
+    /// Songs queued with Play Next or Add to Queue, by key. While shuffled
+    /// they play before the rest of the list, in the order they were queued,
+    /// stay queued when another song is picked, and are all Up Next shows:
+    /// the rest has no order worth showing.
+    private(set) var queuedKeys: Set<Int> = []
     /// The queue's own order, to return to when shuffle is turned off.
     @ObservationIgnored private(set) var unshuffled: [TrackItem]?
     @ObservationIgnored private var unshuffledKeys: [Int]?
@@ -103,6 +109,15 @@ final class Player {
         guard let index, index + 1 < queue.count else { return [] }
         return queue[(index + 1)...]
     }
+
+    /// The songs you queued that are still to come, as places in `queue`.
+    var queuedUpNext: [Int] {
+        guard let index else { return [] }
+        return queue.indices.dropFirst(index + 1).filter { queuedKeys.contains(keys[$0]) }
+    }
+
+    /// For saving: the songs you queued, as places in `queue`.
+    var queuedPositions: [Int] { keys.indices.filter { queuedKeys.contains(keys[$0]) } }
 
     /// For saving: each entry of the queue's own order, as a place in `queue`.
     var unshuffledPositions: [Int]? {
@@ -165,7 +180,7 @@ final class Player {
 
     /// Plays `tracks` from `start`. `shuffled` turns shuffle mode on or off;
     /// nil keeps the current mode (picking a song while shuffled plays it
-    /// first, then the rest shuffled).
+    /// first, then the songs you queued, then the rest shuffled).
     func play(_ tracks: [TrackItem], startAt start: Int = 0, shuffled: Bool? = nil, from source: QueueSource? = nil) {
         guard !tracks.isEmpty else { return }
         revision += 1
@@ -173,6 +188,8 @@ final class Player {
         let startIndex = min(max(start, 0), tracks.count - 1)
         let tracksKeys = tracks.map { _ in newKey() }
         var order = Array(tracks.indices)
+        // Songs you queued stay queued while shuffle stays on.
+        let carried = (shuffled ?? isShuffled) && isShuffled ? queuedUpNext.map { queue[$0] } : []
         isShuffled = shuffled ?? isShuffled
         if isShuffled {
             unshuffled = tracks
@@ -189,6 +206,13 @@ final class Player {
         }
         keys = order.map { tracksKeys[$0] }
         queue = order.map { tracks[$0] }
+        let carriedKeys = carried.map { _ in newKey() }
+        if !carried.isEmpty {
+            // Right after the first song (shuffled, it's always at 0).
+            keys.insert(contentsOf: carriedKeys, at: 1)
+            queue.insert(contentsOf: carried, at: 1)
+        }
+        queuedKeys = Set(carriedKeys)
         index = isShuffled ? 0 : startIndex
         position = 0
         setPlaying(intent: true)
@@ -200,12 +224,14 @@ final class Player {
     /// `unshuffledPositions` is the queue's own order as places in `tracks`;
     /// older saves only have the songs (`unshuffled`).
     func resume(_ tracks: [TrackItem], at start: Int, position: TimeInterval, playing: Bool, shuffled: Bool = false,
-                unshuffledPositions: [Int]? = nil, unshuffled: [TrackItem]? = nil, from source: QueueSource? = nil) {
+                unshuffledPositions: [Int]? = nil, unshuffled: [TrackItem]? = nil, queuedPositions: [Int]? = nil,
+                from source: QueueSource? = nil) {
         guard tracks.indices.contains(start) else { return }
         self.source = source
         isShuffled = shuffled
         keys = tracks.map { _ in newKey() }
         queue = tracks
+        queuedKeys = Set((queuedPositions ?? []).filter(tracks.indices.contains).map { keys[$0] })
         if shuffled, let positions = unshuffledPositions, positions.allSatisfy(tracks.indices.contains) {
             self.unshuffled = positions.map { tracks[$0] }
             unshuffledKeys = positions.map { keys[$0] }
@@ -289,9 +315,10 @@ final class Player {
         // Mirrors the engine's queue exactly (no de-duplicating), so positions
         // in the two stay aligned for syncing the current song. Ours changes
         // only once the engine has taken the song.
-        insertLive(track, afterCurrent: true) { [weak self] in
+        insertLive(track, afterCurrent: true) { [weak self] _ in
             guard let self, let index = self.index else { return }
             let key = self.newKey()
+            self.queuedKeys.insert(key)
             if let keys = self.unshuffledKeys, let at = keys.firstIndex(of: self.keys[index]) {
                 self.unshuffledKeys?.insert(key, at: at + 1)
                 self.unshuffled?.insert(track, at: at + 1)
@@ -301,13 +328,22 @@ final class Player {
         }
     }
 
+    /// At the end of the queue; while shuffled, after the songs you queued
+    /// before it but ahead of the rest of the list.
     func addToQueue(_ track: TrackItem) {
         guard index != nil else { play([track]); return }
-        insertLive(track, afterCurrent: false) { [weak self] in
+        let shuffled = isShuffled
+        insertLive(track, afterCurrent: shuffled, behindQueued: shuffled) { [weak self] at in
             guard let self else { return }
             let key = self.newKey()
-            self.keys.append(key)
-            self.queue.append(track)
+            self.queuedKeys.insert(key)
+            if let at {
+                self.keys.insert(key, at: at)
+                self.queue.insert(track, at: at)
+            } else {
+                self.keys.append(key)
+                self.queue.append(track)
+            }
             self.unshuffledKeys?.append(key)
             self.unshuffled?.append(track)
         }
@@ -317,14 +353,32 @@ final class Player {
     /// changes and the Now panel says so. If the queue is replaced before or
     /// while it's being added, it's dropped from ours too: the engine gets
     /// the new queue next, without it.
-    private func insertLive(_ track: TrackItem, afterCurrent: Bool, apply: @escaping @MainActor () -> Void) {
+    ///
+    /// `behindQueued` (with `afterCurrent`) then moves it behind the songs
+    /// you queued that come right after the current one, in the engine too,
+    /// and gives `apply` the place in `queue` it belongs at.
+    private func insertLive(_ track: TrackItem, afterCurrent: Bool, behindQueued: Bool = false,
+                            apply: @escaping @MainActor (Int?) -> Void) {
         let generation = liveGeneration
         enqueue { engine in
             guard generation == self.liveGeneration else { return }
             do {
+                // The engine may have moved on a song since the last tick.
+                if self.pendingStarts == 0 { self.syncCurrentEntry() }
                 try await engine.insert(track, afterCurrent: afterCurrent)
                 guard generation == self.liveGeneration else { return }
-                apply()
+                guard behindQueued, let index = self.index else { return apply(nil) }
+                let upcoming = self.queue.count - index - 1
+                let skip = (index + 1 ..< self.queue.count).prefix { self.queuedKeys.contains(self.keys[$0]) }.count
+                apply(index + 1 + skip)
+                if skip > 0 {
+                    // The engine has it first; it goes `skip` places later.
+                    let order = Array(1 ... skip) + [0] + Array((skip + 1) ..< (upcoming + 1))
+                    if !engine.reorderUpcoming(order) {
+                        Self.log.error("the player's songs up next don't line up with ours; rebuilding its queue")
+                        self.startLive(at: index, from: self.position)
+                    }
+                }
             } catch {
                 Self.log.error("couldn't queue \(track.title, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 self.report("Couldn't queue “\(track.title)”: \(error.localizedDescription)")
@@ -345,17 +399,20 @@ final class Player {
     func toggleShuffle() { setShuffle(!isShuffled) }
 
     /// Turning shuffle on shuffles the songs after this one; turning it off
-    /// puts them back in the queue's own order. The playing song is never
-    /// touched, so playback carries on uninterrupted.
+    /// puts them back in the queue's own order. Either way the songs you
+    /// queued come first, as queued. The playing song is never touched, so
+    /// playback carries on uninterrupted.
     func setShuffle(_ on: Bool) {
         guard on != isShuffled else { return }
         isShuffled = on
         guard let index else { return }
-        let upcoming = Array(queue.indices.dropFirst(index + 1))
+        let all = Array(queue.indices.dropFirst(index + 1))
+        let queuedFirst = all.filter { queuedKeys.contains(keys[$0]) }
+        let upcoming = all.filter { !queuedKeys.contains(keys[$0]) }
         if on {
             unshuffled = queue
             unshuffledKeys = keys
-            reorderUpcoming(upcoming.shuffled())
+            reorderUpcoming(queuedFirst + upcoming.shuffled())
         } else {
             // The entries still to come, in the queue's own order; by key, so
             // a song queued twice puts back the copy that's actually left.
@@ -365,7 +422,7 @@ final class Player {
             ordered += upcoming.filter { !placed.contains($0) }
             unshuffled = nil
             unshuffledKeys = nil
-            reorderUpcoming(ordered)
+            reorderUpcoming(queuedFirst + ordered)
         }
     }
 
@@ -406,6 +463,7 @@ final class Player {
         live { engine in engine.stop() }
         keys = []
         queue = []
+        queuedKeys = []
         unshuffled = nil
         unshuffledKeys = nil
         source = nil

@@ -77,6 +77,14 @@ enum SnapshotTour {
 
             model.select(.discover)
             await shot("9-upnext")
+            // Shuffled, with two songs queued: they're listed, the rest isn't.
+            if let first = playlists?.first, let tracks = try? await model.provider.tracks(in: first), tracks.count > 6 {
+                model.play(tracks, shuffled: true, from: .playlist(first))
+                model.player.addToQueue(tracks[5])
+                model.player.addToQueue(tracks[6])
+                await shot("9a-upnext-shuffled", wait: 1.0)
+                model.player.setShuffle(false)
+            }
 
             // Loading states, each next to what replaces it: nothing should
             // move when the data arrives.

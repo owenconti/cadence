@@ -24,7 +24,8 @@ import notify
 /// - `run`: runs the steps in `run.txt` in order, once per number on its
 ///   first line, then reports that number as `ran`. Steps: `sim prepare=2
 ///   play=0 insert=2 refuse=1` (the simulated engine's delays in seconds, and
-///   whether it refuses songs), `play-playlist N`, `add-to-queue N I` (song I
+///   whether it refuses songs), `play-playlist N [shuffled]`, `pick N I` (song I
+///   of playlist N, keeping shuffle as it is), `add-to-queue N I` (song I
 ///   of playlist N; -1 for the last), `toggle`, `wait S`, `play-duplicates N
 ///   [shuffled]` (A, B, A, C from entry N, shuffle mode on or off),
 ///   `add-to-playlist N I P` (song I of playlist N, to playlist P), `tempo N`
@@ -223,6 +224,7 @@ enum CheckHooks {
             "index": model.player.index ?? -1,
             "upNextAll": model.player.upNext.map(\.id).joined(separator: ","),
             "unshuffledIDs": model.player.unshuffled?.map(\.id).joined(separator: ",") ?? "",
+            "queuedIDs": model.player.queuedUpNext.map { model.player.queue[$0].id }.joined(separator: ","),
             "filterText": editableFields(in: NSApp.appWindow?.contentView).filter { !($0 is FocusingTextField) }.map(\.stringValue).joined(),
             "sidebarHidden": model.sidebarHidden,
             "nowPlayingMode": model.nowPlayingMode,
@@ -283,7 +285,13 @@ enum CheckHooks {
         case "play-playlist":
             guard words.count > 1, let playlist = playlist(words[1]),
                   let tracks = try? await model.provider.tracks(in: playlist) else { return }
-            model.play(tracks, shuffled: false, from: .playlist(playlist))
+            model.play(tracks, shuffled: words.contains("shuffled"), from: .playlist(playlist))
+        case "pick":
+            // pick N I: song I of playlist N, as clicking its row does (keeps shuffle as it is).
+            guard words.count > 2, let playlist = playlist(words[1]),
+                  let tracks = try? await model.provider.tracks(in: playlist), !tracks.isEmpty else { return }
+            let i = Int(words[2]) ?? 0
+            model.play(tracks, startAt: i < 0 ? tracks.count - 1 : min(i, tracks.count - 1), from: .playlist(playlist))
         case "add-to-queue":
             guard words.count > 2, let playlist = playlist(words[1]),
                   let tracks = try? await model.provider.tracks(in: playlist), !tracks.isEmpty else { return }

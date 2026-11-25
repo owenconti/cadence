@@ -491,7 +491,7 @@ final class AppModel {
         let unshuffled = saved.position.unshuffledIDs?.compactMap { byID[$0] }
         player.resume(saved.tracks, at: start, position: saved.position.position + elapsed, playing: playing,
                       shuffled: saved.position.shuffled ?? false, unshuffledPositions: saved.position.unshuffledPositions,
-                      unshuffled: unshuffled, from: saved.position.source)
+                      unshuffled: unshuffled, queuedPositions: saved.position.queuedPositions, from: saved.position.source)
         // Library artwork is a handle that only works in the session that
         // fetched it, so restored songs need theirs fetched again. The playing
         // song and what's next come first.

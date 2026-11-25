@@ -146,21 +146,56 @@ struct UpNextList: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let upcoming = model.player.upNext
+        let player = model.player
+        let upcoming = player.upNext
         if upcoming.isEmpty {
             EmptyNote(symbol: "text.append", title: "Queue is empty", message: "Use “Play Next” or “Add to Queue” on any song.")
         } else {
+            // Shuffled, only the songs you queued have a set order; the rest
+            // is picked as it goes.
+            let rows = player.isShuffled ? player.queuedUpNext : Array(upcoming.indices)
             ScrollView {
                 LazyVStack(spacing: 2) {
                     // By queue position: the same song can be queued twice.
-                    ForEach(upcoming.indices, id: \.self) { i in
-                        QueueRow(track: upcoming[i], queueIndex: i)
+                    ForEach(rows, id: \.self) { i in
+                        QueueRow(track: player.queue[i], queueIndex: i)
+                    }
+                    if player.isShuffled, upcoming.count > rows.count {
+                        ShuffledRest(count: upcoming.count - rows.count, source: player.source, afterQueued: !rows.isEmpty)
                     }
                 }
                 .padding(.vertical, 8)
             }
             .scrollIndicators(.never)
         }
+    }
+}
+
+/// Stands in for the shuffled songs after any you queued: how many, and from where.
+private struct ShuffledRest: View {
+    let count: Int
+    let source: QueueSource?
+    let afterQueued: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "shuffle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 34, height: 34)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Theme.card))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(afterQueued ? "Then " : "")\(count) \(count == 1 ? "song" : "songs") shuffled")
+                    .font(.system(size: 12.5, weight: .medium))
+                Text(source.map { "From \($0.title)" } ?? "Each picked as it comes")
+                    .font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 44)
+        .accessibilityElement(children: .combine)
     }
 }
 

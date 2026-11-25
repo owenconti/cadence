@@ -29,6 +29,8 @@ final class PlaybackStore {
         /// The same order as places in the queue, which tells copies of a
         /// song apart.
         var unshuffledPositions: [Int]?
+        /// The songs queued with Play Next or Add to Queue, as places in the queue.
+        var queuedPositions: [Int]?
         var source: QueueSource?
         var savedAt = Date()
     }
@@ -73,10 +75,10 @@ final class PlaybackStore {
         let position = Position(live: player.backend == .musicKit, trackID: current.id, index: index, queueFile: nil,
                                 position: player.position, isPlaying: player.isPlaying, shuffled: player.isShuffled,
                                 unshuffledIDs: player.unshuffled?.map(\.id), unshuffledPositions: player.unshuffledPositions,
-                                source: player.source)
+                                queuedPositions: player.queuedPositions, source: player.source)
         if entries == nil, !force, let last = savedPosition, last.trackID == position.trackID, last.index == position.index,
            last.isPlaying == position.isPlaying, last.shuffled == position.shuffled, last.unshuffledPositions == position.unshuffledPositions,
-           last.source == position.source, abs(last.position - position.position) < 3 {
+           last.queuedPositions == position.queuedPositions, last.source == position.source, abs(last.position - position.position) < 3 {
             return true
         }
         savedQueueIDs = ids
@@ -151,6 +153,7 @@ final class PlaybackStore {
         if tracks.count != entries.count {
             position.index = nil
             position.unshuffledPositions = nil
+            position.queuedPositions = nil
         }
         // What's on disk now: the queue as saved, before any lookups dropped songs.
         let disk = self.disk, savedIDs = entries.map(\.id), file = position.queueFile ?? "queue.json"
