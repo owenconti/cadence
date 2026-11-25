@@ -210,12 +210,13 @@ struct PhonePlaylists: View {
     }
 }
 
-/// My Playlists: Cadence's own, synced through iCloud.
+/// My Playlists: Cadence's own, synced through iCloud. Folders come first;
+/// tap one to open or close it, and long-press a playlist to move it.
 struct PhoneMyPlaylists: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let playlists = model.myPlaylists
+        let groups = MyPlaylistGroups(model: model, filter: "")
         PhonePage {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
@@ -224,6 +225,16 @@ struct PhoneMyPlaylists: View {
                     if model.showsCloudSync {
                         SyncNowButton(compact: true).foregroundStyle(Theme.text).padding(.top, 2)
                     }
+                    Button { model.playlistPrompt = .createFolder(moving: nil) } label: {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(Theme.card))
+                            .overlay(Circle().stroke(Theme.hairline))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                    .accessibilityLabel("New Folder in My Playlists")
                     Button { model.playlistPrompt = .createMine(with: nil) } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 17, weight: .semibold))
@@ -246,21 +257,48 @@ struct PhoneMyPlaylists: View {
                 .disabled(model.playlists.isEmpty)
             }
 
-            if playlists.isEmpty {
+            if groups.isEmpty {
                 EmptyNote(symbol: "rectangle.stack.badge.person.crop", title: "No playlists here yet",
                           message: "Make one, or copy one of your Apple Music playlists. They sync to all your devices.")
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 2), alignment: .leading, spacing: 4) {
-                    ForEach(playlists) { playlist in
-                        MediaCard(title: playlist.name, subtitle: "\(playlist.trackCount ?? 0) songs",
-                                  artwork: model.artwork(for: playlist), width: nil) {
-                            model.navigate(.playlist(playlist))
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(groups.folders, id: \.folder.id) { group in
+                        let open = !model.collapsedFolders.contains(group.folder.id)
+                        FolderHeader(folder: group.folder, count: group.playlists.count, open: open)
+                            .padding(.horizontal, -10)
+                        if open {
+                            if group.playlists.isEmpty {
+                                FolderEmptyNote(text: "Empty. Long-press a playlist to move it here.")
+                                    .padding(.bottom, 8)
+                            } else {
+                                grid(group.playlists)
+                            }
                         }
                     }
+                    if !groups.loose.isEmpty {
+                        if !groups.folders.isEmpty {
+                            Text("NOT IN A FOLDER").eyebrow()
+                                .frame(height: 34)
+                                .padding(.top, 8)
+                        }
+                        grid(groups.loose)
+                    }
                 }
-                .padding(.horizontal, -10)
             }
         }
+    }
+
+    private func grid(_ playlists: [PlaylistItem]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 2), alignment: .leading, spacing: 4) {
+            ForEach(playlists) { playlist in
+                MediaCard(title: playlist.name, subtitle: "\(playlist.trackCount ?? 0) songs",
+                          artwork: model.artwork(for: playlist), width: nil) {
+                    model.navigate(.playlist(playlist))
+                }
+                .contextMenu { MyPlaylistContextMenu(playlist: playlist) }
+            }
+        }
+        .padding(.horizontal, -10)
     }
 }
 
@@ -272,7 +310,8 @@ struct PhonePlaylistPage: View {
 
     var body: some View {
         let playlist = model.fresh(route)
-        PhoneCollection(kind: "Playlist", title: playlist.name, byline: playlist.curator, summary: playlist.summary,
+        PhoneCollection(kind: "Playlist", title: playlist.name,
+                        byline: model.folder(of: playlist).map { "My Playlists › \($0.name)" } ?? playlist.curator, summary: playlist.summary,
                         artwork: model.artwork(for: playlist), source: .playlist(playlist), showArtwork: true, playlist: playlist) {
             try await model.tracks(in: playlist)
         }

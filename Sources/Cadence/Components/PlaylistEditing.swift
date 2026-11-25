@@ -16,10 +16,10 @@ private struct PlaylistPromptHost: ViewModifier {
             .alert(Text(title(prompt)), isPresented: Binding(get: { model.playlistPrompt != nil },
                                                             set: { if !$0 { model.playlistPrompt = nil } }),
                    presenting: prompt) { prompt in
-                if case .delete = prompt {
+                if prompt.isDelete {
                     Button("Delete", role: .destructive) { model.submit(prompt, name: "") }
                 } else {
-                    TextField("Playlist name", text: $name)
+                    TextField(prompt.isFolder ? "Folder name" : "Playlist name", text: $name)
                     Button(button(prompt)) { model.submit(prompt, name: name) }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -28,11 +28,19 @@ private struct PlaylistPromptHost: ViewModifier {
                 case .create(let track?): Text("It starts with “\(track.title)”.")
                 case .createMine(let track): Text((track.map { "It starts with “\($0.title)”. " } ?? "") + "My Playlists sync through iCloud to all your devices.")
                 case .delete(let playlist): Text("“\(playlist.name)” is removed from My Playlists on all your devices.")
+                case .createFolder(let playlist?): Text("“\(playlist.name)” moves into it.")
+                case .deleteFolder(let folder):
+                    let count = model.myPlaylists(in: folder).count
+                    Text(count == 0 ? "It's empty." : "Its \(count == 1 ? "playlist stays" : "\(count) playlists stay") in My Playlists, out of any folder.")
                 default: EmptyView()
                 }
             }
             .onChange(of: prompt?.id) {
-                if case .rename(let playlist) = model.playlistPrompt { name = playlist.name } else { name = "" }
+                switch model.playlistPrompt {
+                case .rename(let playlist): name = playlist.name
+                case .renameFolder(let folder): name = folder.name
+                default: name = ""
+                }
             }
     }
 
@@ -41,12 +49,84 @@ private struct PlaylistPromptHost: ViewModifier {
         case .rename: "Rename Playlist"
         case .createMine: "New Playlist in My Playlists"
         case .delete(let playlist): "Delete “\(playlist.name)”?"
+        case .createFolder: "New Folder in My Playlists"
+        case .renameFolder: "Rename Folder"
+        case .deleteFolder(let folder): "Delete the folder “\(folder.name)”?"
         default: "New Playlist"
         }
     }
 
     private func button(_ prompt: PlaylistPrompt) -> String {
-        if case .rename = prompt { "Rename" } else { "Create" }
+        switch prompt {
+        case .rename, .renameFolder: "Rename"
+        default: "Create"
+        }
+    }
+}
+
+private extension PlaylistPrompt {
+    var isDelete: Bool {
+        switch self {
+        case .delete, .deleteFolder: true
+        default: false
+        }
+    }
+
+    var isFolder: Bool {
+        switch self {
+        case .createFolder, .renameFolder, .deleteFolder: true
+        default: false
+        }
+    }
+}
+
+/// My Playlists a song can be added to: those in no folder, then a submenu
+/// per folder. Takes the model itself so the app's menus can use it.
+struct AddToMyPlaylistsItems: View {
+    let model: AppModel
+    let track: TrackItem
+
+    var body: some View {
+        let loose = model.myPlaylists(in: nil).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let folders = model.myFolders.filter { !model.myPlaylists(in: $0).isEmpty }
+        if !loose.isEmpty || !folders.isEmpty {
+            Section("My Playlists") {
+                ForEach(folders) { folder in
+                    Menu(folder.name, systemImage: "folder") {
+                        ForEach(model.myPlaylists(in: folder).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { playlist in
+                            Button(playlist.name) { model.add(track, to: playlist) }
+                        }
+                    }
+                }
+                ForEach(loose) { playlist in
+                    Button(playlist.name) { model.add(track, to: playlist) }
+                }
+            }
+        }
+    }
+}
+
+/// Moves one of My Playlists into a folder (a new one, too) or out of its folder.
+struct MoveToFolderMenu: View {
+    @Environment(AppModel.self) private var model
+    let playlist: PlaylistItem
+
+    var body: some View {
+        let current = model.folder(of: playlist)
+        Menu("Move to Folder", systemImage: "folder") {
+            Button("New Folder…", systemImage: "folder.badge.plus") { model.playlistPrompt = .createFolder(moving: playlist) }
+            if !model.myFolders.isEmpty {
+                Divider()
+                ForEach(model.myFolders) { folder in
+                    Button(folder.name) { model.move(playlist, to: folder) }
+                        .disabled(folder.id == current?.id)
+                }
+            }
+            if let current {
+                Divider()
+                Button("Remove from “\(current.name)”", systemImage: "folder.badge.minus") { model.move(playlist, to: nil) }
+            }
+        }
     }
 }
 
@@ -60,14 +140,7 @@ struct AddToPlaylistMenu: View {
         Menu(title, systemImage: "text.badge.plus") {
             Button("New Playlist…", systemImage: "plus") { model.playlistPrompt = .create(with: track) }
             Button("New Playlist in My Playlists…", systemImage: "rectangle.stack.badge.plus") { model.playlistPrompt = .createMine(with: track) }
-            let mine = model.addableMine
-            if !mine.isEmpty {
-                Section("My Playlists") {
-                    ForEach(mine) { playlist in
-                        Button(playlist.name) { model.add(track, to: playlist) }
-                    }
-                }
-            }
+            AddToMyPlaylistsItems(model: model, track: track)
             let playlists = model.addablePlaylists
             if !playlists.isEmpty {
                 Section("Apple Music") {
@@ -81,7 +154,7 @@ struct AddToPlaylistMenu: View {
 }
 
 /// Rename and Edit Songs, for a playlist Cadence made (iPhone and iPad), and
-/// Delete for My Playlists. Edit Songs is iPhone and iPad only.
+/// Move to Folder and Delete for My Playlists. Edit Songs is iPhone and iPad only.
 struct ManagePlaylistMenu: View {
     @Environment(AppModel.self) private var model
     let playlist: PlaylistItem
@@ -96,6 +169,7 @@ struct ManagePlaylistMenu: View {
                 .disabled(!canEditSongs)
             #endif
             if playlist.isCadence {
+                MoveToFolderMenu(playlist: playlist)
                 Divider()
                 Button("Delete Playlist…", systemImage: "trash", role: .destructive) { model.playlistPrompt = .delete(playlist) }
             }

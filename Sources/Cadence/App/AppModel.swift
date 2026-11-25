@@ -17,12 +17,16 @@ struct Toast: Equatable {
 
 /// Asks for a playlist's name: a new one (holding a song, if given), in
 /// Apple Music or My Playlists, or a new name for one Cadence can rename. Or
-/// whether to delete one of My Playlists.
+/// whether to delete one of My Playlists. Or the same for a folder in My
+/// Playlists (a new one can take a playlist straight in).
 enum PlaylistPrompt: Identifiable, Equatable {
     case create(with: TrackItem?)
     case createMine(with: TrackItem?)
     case rename(PlaylistItem)
     case delete(PlaylistItem)
+    case createFolder(moving: PlaylistItem?)
+    case renameFolder(PlaylistFolder)
+    case deleteFolder(PlaylistFolder)
 
     var id: String {
         switch self {
@@ -30,6 +34,9 @@ enum PlaylistPrompt: Identifiable, Equatable {
         case .createMine(let track): "create-mine:\(track?.id ?? "")"
         case .rename(let playlist): "rename:\(playlist.id)"
         case .delete(let playlist): "delete:\(playlist.id)"
+        case .createFolder(let playlist): "create-folder:\(playlist?.id ?? "")"
+        case .renameFolder(let folder): "rename-folder:\(folder.id)"
+        case .deleteFolder(let folder): "delete-folder:\(folder.id)"
         }
     }
 }
@@ -129,6 +136,12 @@ final class AppModel {
     var mine: CadencePlaylists { provider.isLive ? liveMine : demoMine }
     /// My Playlists, newest change first.
     var myPlaylists: [PlaylistItem] { mine.all.map(\.item) }
+    /// My Playlists' folders, A–Z.
+    var myFolders: [PlaylistFolder] { mine.folders }
+    /// Folders shown closed on My Playlists, by ID (this device only).
+    var collapsedFolders = Set(UserDefaults.standard.stringArray(forKey: AppModel.collapsedFoldersKey) ?? []) {
+        didSet { UserDefaults.standard.set(Array(collapsedFolders), forKey: Self.collapsedFoldersKey) }
+    }
     /// My Playlists' songs as last looked up, with the references they're for.
     @ObservationIgnored private var resolvedMine: [String: (refs: [SongRef], tracks: [TrackItem])] = [:]
     /// Songs just saved to a playlist, shown until Apple Music's library
@@ -161,6 +174,7 @@ final class AppModel {
     private static let sourceKey = "cadence.source"
     private static let sizesKey = "cadence.playlistSizes"
     private static let createdKey = "cadence.createdPlaylists"
+    private static let collapsedFoldersKey = "cadence.collapsedFolders"
     private static let sidebarHiddenKey = "cadence.sidebarHidden"
     private static let sidebarWidthKey = "cadence.sidebarWidth"
     private static let nowPanelWidthKey = "cadence.nowPanelWidth"
@@ -183,6 +197,7 @@ final class AppModel {
         tempo.onChange = { [player] in player.applyRate() }
         liveMine.cloud = cloud
         cloud.register(liveMine)
+        cloud.register(liveMine.folderRecords)
         #if os(macOS)
         if ArtworkAudit.runIfRequested() { return }
         installKeyMonitor()
@@ -671,6 +686,80 @@ final class AppModel {
         }
     }
 
+    // MARK: Folders
+
+    /// The folder one of My Playlists is in, if any.
+    func folder(of playlist: PlaylistItem) -> PlaylistFolder? {
+        guard playlist.isCadence, let stored = mine.playlist(id: playlist.id) else { return nil }
+        return mine.folder(of: stored)
+    }
+
+    /// My Playlists in a folder, or (nil) in none, newest change first.
+    func myPlaylists(in folder: PlaylistFolder?) -> [PlaylistItem] {
+        mine.all.filter { mine.folder(of: $0)?.id == folder?.id }.map(\.item)
+    }
+
+    /// Why a folder can't have this name, if it can't.
+    func problem(namingFolder name: String, except folder: PlaylistFolder? = nil) -> String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return "A folder needs a name." }
+        if myFolders.contains(where: { $0.id != folder?.id && $0.name.compare(name, options: .caseInsensitive) == .orderedSame }) {
+            return "My Playlists already has a folder called “\(name)”."
+        }
+        return nil
+    }
+
+    /// Makes a folder in My Playlists, moving `playlist` into it if given.
+    func createFolder(named raw: String, moving playlist: PlaylistItem? = nil) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = problem(namingFolder: name) {
+            return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
+        }
+        let folder = mine.createFolder(named: name)
+        collapsedFolders.remove(folder.id)
+        if let playlist, playlist.isCadence {
+            mine.move(playlist.id, to: folder.id)
+            mineChanged(playlist.id)
+            show(Toast(text: "Moved \(playlist.name) to \(name)", symbol: "folder.fill"))
+        } else {
+            show(Toast(text: "Created folder \(name)", symbol: "folder.fill.badge.plus"))
+        }
+    }
+
+    func renameFolder(_ folder: PlaylistFolder, to raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != folder.name else { return }
+        if let problem = problem(namingFolder: name, except: folder) {
+            return show(Toast(text: problem, symbol: "exclamationmark.triangle.fill"))
+        }
+        mine.renameFolder(folder.id, to: name)
+        show(Toast(text: "Renamed folder to \(name)", symbol: "checkmark.circle.fill"))
+    }
+
+    /// Deletes a folder; its playlists stay in My Playlists.
+    func deleteFolder(_ folder: PlaylistFolder) {
+        let inside = mine.all.filter { $0.folderID == folder.id }.map(\.id)
+        mine.deleteFolder(folder.id)
+        for id in inside { mineChanged(id) }
+        collapsedFolders.remove(folder.id)
+        show(Toast(text: "Deleted folder \(folder.name)", symbol: "trash"))
+    }
+
+    /// Puts one of My Playlists in a folder, or (nil) takes it out of its folder.
+    func move(_ playlist: PlaylistItem, to folder: PlaylistFolder?) {
+        guard playlist.isCadence, let stored = mine.playlist(id: playlist.id) else { return }
+        let from = mine.folder(of: stored)
+        guard from?.id != folder?.id else { return }
+        mine.move(stored.id, to: folder?.id)
+        mineChanged(stored.id)
+        if let folder {
+            collapsedFolders.remove(folder.id)
+            show(Toast(text: "Moved \(stored.name) to \(folder.name)", symbol: "folder.fill"))
+        } else {
+            show(Toast(text: "Moved \(stored.name) out of \(from?.name ?? "its folder")", symbol: "folder"))
+        }
+    }
+
     /// Deletes one of My Playlists, leaving its page if it's open.
     func deleteMine(_ playlist: PlaylistItem) {
         guard playlist.isCadence else { return }
@@ -773,6 +862,9 @@ final class AppModel {
         case .createMine(let track): createMine(named: name, with: track)
         case .rename(let playlist): rename(playlist, to: name)
         case .delete(let playlist): deleteMine(playlist)
+        case .createFolder(let playlist): createFolder(named: name, moving: playlist)
+        case .renameFolder(let folder): renameFolder(folder, to: name)
+        case .deleteFolder(let folder): deleteFolder(folder)
         }
     }
 

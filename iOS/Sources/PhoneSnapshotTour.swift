@@ -57,6 +57,7 @@ enum PhoneSnapshotTour {
 
             // My Playlists: a copy of a demo playlist.
             model.mine.removeAll()
+            model.mine.folderRecords.removeAll()
             if let first = playlists?.first {
                 model.navigate(.playlist(first))
                 await model.copyToMine(first).value
@@ -64,6 +65,14 @@ enum PhoneSnapshotTour {
             }
             model.select(.mine)
             await shot("4e-my-playlists")
+            // Folders: one holding the copy, one empty, and a playlist in none.
+            if let copy = model.myPlaylists.first, let second = playlists?.dropFirst().first {
+                await model.copyToMine(second).value
+                model.select(.mine)
+                model.createFolder(named: "Road Trips", moving: copy)
+                model.createFolder(named: "Workouts")
+                await shot("4f-my-playlists-folders", wait: 1.0)
+            }
 
             model.select(.artists)
             await shot("5-artists")

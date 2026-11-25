@@ -126,7 +126,8 @@ struct CommandPalette: View {
                 model.palette.addingToPlaylist?.id ?? "", "\(model.editablePlaylistIDs.count)",
                 // Names too: a renamed or replaced playlist, same count.
                 model.playlists.map { "\($0.id)=\($0.name)" }.joined(separator: ","),
-                model.myPlaylists.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
+                model.mine.all.map { "\($0.id)=\($0.name)@\($0.folderID ?? "")" }.joined(separator: ","),
+                model.myFolders.map { "\($0.id)=\($0.name)" }.joined(separator: ",")]
             .joined(separator: "|")
     }
 
@@ -146,7 +147,9 @@ struct CommandPalette: View {
             }]
             entries += model.addableMine.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }.map { playlist in
                 .init(id: "add:\(playlist.id)", group: "Add “\(track.title)” to", title: playlist.name,
-                      subtitle: "My Playlists · \(playlist.trackCount ?? 0) songs", artwork: model.artwork(for: playlist)) {
+                      subtitle: (["My Playlists", model.folder(of: playlist)?.name, "\(playlist.trackCount ?? 0) songs"] as [String?])
+                        .compactMap { $0 }.joined(separator: " · "),
+                      artwork: model.artwork(for: playlist)) {
                     model.add(track, to: playlist)
                 }
             }
@@ -261,6 +264,19 @@ struct CommandPalette: View {
                                   keywords: "name title playlist") { model.playlistPrompt = .rename(playlist) })
                 list.append(.init(id: "page:delete", group: "This page", title: "Delete “\(playlist.name)”…", symbol: "trash",
                                   keywords: "remove playlist my playlists") { model.playlistPrompt = .delete(playlist) })
+                let current = model.folder(of: playlist)
+                for folder in model.myFolders where folder.id != current?.id {
+                    list.append(.init(id: "page:move:\(folder.id)", group: "This page", title: "Move “\(playlist.name)” to “\(folder.name)”",
+                                      symbol: "folder", keywords: "folder group organize file my playlists") { model.move(playlist, to: folder) })
+                }
+                list.append(.init(id: "page:move-new", group: "This page", title: "Move “\(playlist.name)” to a new folder…",
+                                  symbol: "folder.badge.plus", keywords: "folder group organize create make my playlists") {
+                    model.playlistPrompt = .createFolder(moving: playlist)
+                })
+                if let current {
+                    list.append(.init(id: "page:unfile", group: "This page", title: "Remove “\(playlist.name)” from “\(current.name)”",
+                                      symbol: "folder.badge.minus", keywords: "folder out take ungroup my playlists") { model.move(playlist, to: nil) })
+                }
             } else {
                 list.append(.init(id: "page:copy", group: "This page", title: "Copy “\(playlist.name)” to My Playlists", symbol: "square.on.square",
                                   keywords: "duplicate save sync icloud my playlists") { model.copyToMine(playlist) })
@@ -273,6 +289,20 @@ struct CommandPalette: View {
 
         case .album(let album):
             return playing(.album(album), album.title)
+        case .myPlaylists:
+            return model.myFolders.flatMap { folder -> [PaletteModel.Entry] in
+                let collapsed = model.collapsedFolders.contains(folder.id)
+                return [
+                    .init(id: "page:folder-toggle:\(folder.id)", group: "This page", title: "\(collapsed ? "Open" : "Close") folder “\(folder.name)”",
+                          symbol: collapsed ? "folder" : "folder.fill", keywords: "expand collapse show hide") {
+                        if collapsed { model.collapsedFolders.remove(folder.id) } else { model.collapsedFolders.insert(folder.id) }
+                    },
+                    .init(id: "page:folder-rename:\(folder.id)", group: "This page", title: "Rename folder “\(folder.name)”…",
+                          symbol: "pencil", keywords: "name title") { model.playlistPrompt = .renameFolder(folder) },
+                    .init(id: "page:folder-delete:\(folder.id)", group: "This page", title: "Delete folder “\(folder.name)”…",
+                          symbol: "trash", keywords: "remove ungroup") { model.playlistPrompt = .deleteFolder(folder) },
+                ]
+            }
         case .playlists:
             return PlaylistSort.allCases.filter { $0 != model.playlistSort }.map { sort in
                 .init(id: "page:sort:\(sort.rawValue)", group: "This page", title: "Sort playlists: \(sort.rawValue)",
@@ -396,6 +426,8 @@ struct CommandPalette: View {
             }
             list.append(.init(id: "lib:new-mine", group: "Library", title: "New playlist in My Playlists…", symbol: "rectangle.stack.badge.plus",
                               hint: "⇧⌘N", keywords: "create make add playlist icloud sync mine") { model.playlistPrompt = .createMine(with: nil) })
+            list.append(.init(id: "lib:new-folder", group: "Library", title: "New folder in My Playlists…", symbol: "folder.badge.plus",
+                              hint: "⌥⇧⌘N", keywords: "create make add folder group organize icloud mine") { model.playlistPrompt = .createFolder(moving: nil) })
         }
         list.append(.init(id: "lib:reload", group: "Library", title: "Reload library", symbol: "arrow.triangle.2.circlepath", keywords: "refresh playlists") {
             model.reloadLibrary()

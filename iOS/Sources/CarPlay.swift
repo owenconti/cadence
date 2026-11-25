@@ -46,6 +46,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             _ = model.phase
             _ = model.playlists
             _ = model.myPlaylists
+            _ = model.myFolders
             _ = model.discoverFeed?.recent.count
             _ = model.providerGeneration
         } onChange: {
@@ -123,11 +124,17 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 self?.openCollection(.playlist(playlist))
             }
         }
-        let mine = model.myPlaylists.map(item)
+        // My Playlists in no folder, then a section per folder.
+        let loose = model.myPlaylists(in: nil).map(item)
+        let folders = model.myFolders.map { ($0.name, model.myPlaylists(in: $0).map(item)) }.filter { !$0.1.isEmpty }
         let items = model.sortedPlaylists(by: .recent).map(item)
         var sections: [CPListSection] = []
-        if !mine.isEmpty { sections.append(CPListSection(items: mine, header: "My Playlists", sectionIndexTitle: nil)) }
-        if !items.isEmpty { sections.append(CPListSection(items: items, header: mine.isEmpty ? nil : "Apple Music", sectionIndexTitle: nil)) }
+        if !loose.isEmpty { sections.append(CPListSection(items: loose, header: "My Playlists", sectionIndexTitle: nil)) }
+        for (name, mine) in folders {
+            sections.append(CPListSection(items: mine, header: "My Playlists › \(name)", sectionIndexTitle: nil))
+        }
+        let anyMine = !loose.isEmpty || !folders.isEmpty
+        if !items.isEmpty { sections.append(CPListSection(items: items, header: anyMine ? "Apple Music" : nil, sectionIndexTitle: nil)) }
         return sections
     }
 

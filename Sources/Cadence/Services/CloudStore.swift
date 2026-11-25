@@ -125,10 +125,7 @@ final class CloudStore {
             self.engine = engine
             // Make sure the zone exists; a no-op once it does.
             engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: Self.zoneID))])
-            // What iCloud has never had, and what changed meanwhile.
-            for kind in kinds.values {
-                engine.state.add(pendingRecordZoneChanges: kind.unsentIDs.map { .saveRecord(Self.recordID(kind.recordType, $0)) })
-            }
+            // What changed meanwhile; `sync()` adds what iCloud never had.
             engine.state.add(pendingRecordZoneChanges: waiting)
             waiting = []
             await sync()
@@ -140,6 +137,11 @@ final class CloudStore {
         guard let engine, status != .syncing else { return }
         status = .syncing
         unsaved = nil
+        // What iCloud has never had or hasn't confirmed, such as a save it
+        // refused last time.
+        for kind in kinds.values {
+            engine.state.add(pendingRecordZoneChanges: kind.unsentIDs.map { .saveRecord(Self.recordID(kind.recordType, $0)) })
+        }
         do {
             do {
                 try await engine.sendChanges()
@@ -206,7 +208,10 @@ final class CloudStore {
             // Each save's new change tag, so the next save of it replaces it
             // rather than clashing with it.
             for record in sent.savedRecords {
-                if let (kind, id) = kind(of: record.recordID) { kind.saved(record, id: id) }
+                if let (kind, id) = kind(of: record.recordID) {
+                    kind.saved(record, id: id)
+                    kind.confirmed(record, id: id)
+                }
             }
             for failure in sent.failedRecordSaves {
                 let recordID = failure.record.recordID
@@ -227,7 +232,7 @@ final class CloudStore {
                     if let (kind, id) = kind(of: recordID) { kind.saved(nil, id: id) }
                     engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 default:
-                    // Left unsent: the next launch sends it again (`unsentIDs`).
+                    // Left unsent: the next sync sends it again (`unsentIDs`).
                     unsaved = failure.error.localizedDescription
                     if status != .syncing { status = .failed(failure.error.localizedDescription) }
                     Self.log.error("couldn't save \(recordID.recordName, privacy: .public): \(failure.error.localizedDescription, privacy: .public)")
@@ -291,8 +296,11 @@ protocol CloudRecordKind: AnyObject {
     func remove(id: String)
     /// The iCloud account changed or the zone was deleted.
     func removeAll()
-    /// Records iCloud has never had, sent when syncing starts.
+    /// Records iCloud has never had or hasn't confirmed saving, sent by each
+    /// `sync()` (on launch and Sync Now).
     var unsentIDs: [String] { get }
+    /// iCloud saved this record: forget it's unsent, unless it changed since.
+    func confirmed(_ record: CKRecord, id: String)
     /// iCloud's latest copy of a record (its change tag; not its values,
     /// which may be older than this device's), or nil to forget it.
     func saved(_ record: CKRecord?, id: String)

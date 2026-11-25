@@ -71,18 +71,20 @@ struct PlaylistsView: View {
 }
 
 /// My Playlists: Cadence's own, synced through iCloud. New ones start empty
-/// or as a copy of an Apple Music playlist.
+/// or as a copy of an Apple Music playlist. Folders come first, each opening
+/// and closing in place; drag a playlist onto one to file it there.
 struct MyPlaylistsView: View {
     @Environment(AppModel.self) private var model
     @State private var filter = ""
 
     var body: some View {
         let all = model.myPlaylists
-        let playlists = filter.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+        let groups = MyPlaylistGroups(model: model, filter: filter)
         PageScroll {
             HStack(alignment: .lastTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("My Playlists").font(.display(34, .heavy))
+                        .lineLimit(1).fixedSize()
                     Text("\(all.count) \(all.count == 1 ? "playlist" : "playlists") · \(model.mineLocation)")
                         .font(.system(size: 13)).foregroundStyle(Theme.secondary)
                         .lineLimit(1).fixedSize()
@@ -90,32 +92,255 @@ struct MyPlaylistsView: View {
                 }
                 Spacer()
                 if model.showsCloudSync { SyncNowButton() }
-                FilterField(prompt: "Filter playlists", text: $filter)
+                FilterField(prompt: "Filter playlists", text: $filter, width: 170)
                 CopyPlaylistMenu()
+                Button { model.playlistPrompt = .createFolder(moving: nil) } label: { Image(systemName: "folder.badge.plus") }
+                    .buttonStyle(IconButtonStyle(size: 34))
+                    .help("New Folder in My Playlists (⌥⇧⌘N)")
+                    .accessibilityLabel("New Folder")
                 Button { model.playlistPrompt = .createMine(with: nil) } label: { Label("New Playlist", systemImage: "plus") }
                     .buttonStyle(PillButtonStyle(prominent: false))
                     .help("New Playlist in My Playlists (⇧⌘N)")
             }
 
-            if all.isEmpty {
+            if all.isEmpty && model.myFolders.isEmpty {
                 EmptyNote(symbol: "rectangle.stack.badge.person.crop", title: "No playlists here yet",
                           message: "Make one, or copy one of your Apple Music playlists. They sync to all your devices.")
-            } else if playlists.isEmpty {
+            } else if groups.isEmpty {
                 EmptyNote(symbol: "music.note.list", title: "Nothing matches “\(filter)”")
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
-                    ForEach(playlists) { playlist in
-                        MediaCard(title: playlist.name, subtitle: "\(playlist.trackCount ?? 0) songs",
-                                  artwork: model.artwork(for: playlist), width: nil) {
-                            model.navigate(.playlist(playlist))
-                        } play: {
-                            Task { await model.play(.playlist(playlist)) }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(groups.folders, id: \.folder.id) { group in
+                        let open = groups.filtering || !model.collapsedFolders.contains(group.folder.id)
+                        FolderDropArea(folder: group.folder) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                FolderHeader(folder: group.folder, count: model.myPlaylists(in: group.folder).count, open: open)
+                                if open {
+                                    if group.playlists.isEmpty {
+                                        FolderEmptyNote(text: "Empty. Drag a playlist here, or use Move to Folder on one.")
+                                    } else {
+                                        grid(group.playlists)
+                                    }
+                                }
+                            }
                         }
                     }
+                    if !groups.folders.isEmpty, groups.loose.isEmpty == false || !groups.filtering {
+                        FolderDropArea(folder: nil) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("NOT IN A FOLDER").eyebrow()
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 34)
+                                if groups.loose.isEmpty {
+                                    FolderEmptyNote(text: "Drag a playlist here to take it out of its folder.")
+                                } else {
+                                    grid(groups.loose)
+                                }
+                            }
+                        }
+                        .padding(.top, 10)
+                    } else if !groups.loose.isEmpty {
+                        grid(groups.loose)
+                    }
                 }
-                .padding(.horizontal, -10)
             }
         }
+    }
+
+    private func grid(_ playlists: [PlaylistItem]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 6)], alignment: .leading, spacing: 10) {
+            ForEach(playlists) { playlist in
+                MediaCard(title: playlist.name, subtitle: "\(playlist.trackCount ?? 0) songs",
+                          artwork: model.artwork(for: playlist), width: nil) {
+                    model.navigate(.playlist(playlist))
+                } play: {
+                    Task { await model.play(.playlist(playlist)) }
+                }
+                .draggable(playlist.id)
+                .contextMenu { MyPlaylistContextMenu(playlist: playlist) }
+            }
+        }
+        .padding(.horizontal, -10)
+    }
+}
+
+/// My Playlists split into folders (A–Z) and those in none, narrowed by a
+/// filter: a folder whose name matches keeps all its playlists.
+struct MyPlaylistGroups {
+    struct Group {
+        let folder: PlaylistFolder
+        let playlists: [PlaylistItem]
+    }
+
+    let folders: [Group]
+    let loose: [PlaylistItem]
+    let filtering: Bool
+
+    var isEmpty: Bool { folders.isEmpty && loose.isEmpty }
+
+    @MainActor
+    init(model: AppModel, filter: String) {
+        let filter = filter.trimmingCharacters(in: .whitespaces)
+        filtering = !filter.isEmpty
+        func matches(_ playlist: PlaylistItem) -> Bool { filter.isEmpty || playlist.name.localizedCaseInsensitiveContains(filter) }
+        folders = model.myFolders.compactMap { folder in
+            let inside = model.myPlaylists(in: folder)
+            if filter.isEmpty || folder.name.localizedCaseInsensitiveContains(filter) { return Group(folder: folder, playlists: inside) }
+            let shown = inside.filter(matches)
+            return shown.isEmpty ? nil : Group(folder: folder, playlists: shown)
+        }
+        loose = model.myPlaylists(in: nil).filter(matches)
+    }
+}
+
+/// A folder's row: click to open or close it; its menu renames or deletes it.
+struct FolderHeader: View {
+    @Environment(AppModel.self) private var model
+    let folder: PlaylistFolder
+    let count: Int
+    let open: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Theme.tertiary)
+                .rotationEffect(.degrees(open ? 90 : 0))
+                .animation(.snappy(duration: 0.18), value: open)
+                .frame(width: 12)
+            Image(systemName: open ? "folder.fill" : "folder")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            Text(folder.name)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+            Text(count == 1 ? "1 playlist" : "\(count) playlists")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.secondary)
+            Spacer(minLength: 8)
+            FolderMenu(folder: folder)
+                .opacity(hovering || !isMac ? 1 : 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 40)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hovering ? Theme.card : .clear))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { toggle() }
+        .contextMenu { FolderMenuItems(folder: folder) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(folder.name), folder, \(count) playlists")
+        .accessibilityValue(open ? "Open" : "Closed")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { toggle() }
+    }
+
+    private func toggle() {
+        if open { model.collapsedFolders.insert(folder.id) } else { model.collapsedFolders.remove(folder.id) }
+    }
+
+    private var isMac: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+}
+
+/// Rename and Delete for a folder.
+struct FolderMenuItems: View {
+    @Environment(AppModel.self) private var model
+    let folder: PlaylistFolder
+
+    var body: some View {
+        Button("Rename Folder…", systemImage: "pencil") { model.playlistPrompt = .renameFolder(folder) }
+        Button("Delete Folder…", systemImage: "trash", role: .destructive) { model.playlistPrompt = .deleteFolder(folder) }
+    }
+}
+
+private struct FolderMenu: View {
+    let folder: PlaylistFolder
+
+    var body: some View {
+        Menu { FolderMenuItems(folder: folder) } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("Manage folder")
+    }
+}
+
+/// A playlist card's right-click (or long-press) menu in My Playlists.
+struct MyPlaylistContextMenu: View {
+    @Environment(AppModel.self) private var model
+    let playlist: PlaylistItem
+
+    var body: some View {
+        Button("Play", systemImage: "play.fill") { Task { await model.play(.playlist(playlist)) } }
+        Button("Shuffle", systemImage: "shuffle") { Task { await model.play(.playlist(playlist), shuffled: true) } }
+        Divider()
+        MoveToFolderMenu(playlist: playlist)
+        Button("Rename…", systemImage: "pencil") { model.playlistPrompt = .rename(playlist) }
+        Divider()
+        Button("Delete Playlist…", systemImage: "trash", role: .destructive) { model.playlistPrompt = .delete(playlist) }
+    }
+}
+
+/// A folder (or, nil, "not in a folder") that playlists dragged from My
+/// Playlists can be dropped on, lit while one is over it.
+struct FolderDropArea<Content: View>: View {
+    @Environment(AppModel.self) private var model
+    let folder: PlaylistFolder?
+    @ViewBuilder let content: Content
+    @State private var targeted = false
+
+    var body: some View {
+        content
+            .padding(.bottom, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.accent.opacity(targeted ? 0.12 : 0))
+                    .padding(.horizontal, -6)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Theme.accent.opacity(targeted ? 0.5 : 0), lineWidth: 1.5)
+                    .padding(.horizontal, -6)
+            )
+            .animation(.snappy(duration: 0.15), value: targeted)
+            .dropDestination(for: String.self) { ids, _ in
+                let dropped = ids.compactMap { id in model.myPlaylists.first { $0.id == id } }
+                for playlist in dropped { model.move(playlist, to: folder) }
+                return !dropped.isEmpty
+            } isTargeted: { targeted = $0 }
+    }
+}
+
+/// What an open folder with nothing in it says (and the drop area under folders).
+struct FolderEmptyNote: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            )
+            .padding(.leading, 22)
     }
 }
 
@@ -186,7 +411,7 @@ struct PlaylistDetailView: View {
         CollectionDetailView(
             kind: "Playlist",
             title: playlist.name,
-            byline: playlist.curator,
+            byline: model.folder(of: playlist).map { "My Playlists › \($0.name)" } ?? playlist.curator,
             summary: playlist.summary,
             artwork: model.artwork(for: playlist),
             source: .playlist(playlist),

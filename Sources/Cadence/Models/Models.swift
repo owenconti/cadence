@@ -127,6 +127,9 @@ struct CadencePlaylist: Codable, Identifiable, Hashable, Sendable {
     var modifiedAt: Date
     /// The Apple Music playlist it was copied from, by name.
     var copiedFrom: String?
+    /// The folder it's in (`PlaylistFolder.id`), if any. One that doesn't
+    /// exist (not synced yet, or deleted elsewhere) counts as none.
+    var folderID: String?
 
     /// How the rest of the app sees it: a playlist like any other, whose ID
     /// says it's Cadence's.
@@ -142,6 +145,15 @@ struct CadencePlaylist: Codable, Identifiable, Hashable, Sendable {
             trackCount: songs.count
         )
     }
+}
+
+/// A folder grouping some of My Playlists, synced like them. Folders don't
+/// nest, and deleting one keeps its playlists.
+struct PlaylistFolder: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    var name: String
+    var createdAt: Date
+    var modifiedAt: Date
 }
 
 enum PlaylistSort: String, CaseIterable {

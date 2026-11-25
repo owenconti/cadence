@@ -38,7 +38,7 @@ struct CadenceApp: App {
     }
 }
 
-/// ⌘N makes a playlist. ⌘W closes the window; the app keeps running, and playing.
+/// ⌘N makes a playlist, ⇧⌘N one in My Playlists, ⌥⇧⌘N a folder there. ⌘W closes the window; the app keeps running, and playing.
 private struct FileMenuItems: View {
     let model: AppModel
 
@@ -47,6 +47,8 @@ private struct FileMenuItems: View {
             .keyboardShortcut("n")
         Button("New Playlist in My Playlists…") { if model.phase == .ready { model.playlistPrompt = .createMine(with: nil) } }
             .keyboardShortcut("n", modifiers: [.command, .shift])
+        Button("New Folder in My Playlists…") { if model.phase == .ready { model.playlistPrompt = .createFolder(moving: nil) } }
+            .keyboardShortcut("n", modifiers: [.command, .option, .shift])
         Divider()
         Button("Close Window") { NSApp.appWindow?.performClose(nil) }
             .keyboardShortcut("w")
@@ -144,13 +146,7 @@ private struct PlaybackMenuItems: View {
             Menu("Add Current Song to Playlist") {
                 Button("New Playlist…") { model.playlistPrompt = .create(with: track) }
                 Button("New Playlist in My Playlists…") { model.playlistPrompt = .createMine(with: track) }
-                if !model.addableMine.isEmpty {
-                    Section("My Playlists") {
-                        ForEach(model.addableMine) { playlist in
-                            Button(playlist.name) { model.add(track, to: playlist) }
-                        }
-                    }
-                }
+                AddToMyPlaylistsItems(model: model, track: track)
                 if !model.addablePlaylists.isEmpty {
                     Section("Apple Music") {
                         ForEach(model.addablePlaylists) { playlist in

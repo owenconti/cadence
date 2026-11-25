@@ -44,6 +44,7 @@ enum SnapshotTour {
 
             // My Playlists: empty, then with a copy of a demo playlist.
             model.mine.removeAll()
+            model.mine.folderRecords.removeAll()
             model.select(.mine)
             await shot("6a-my-playlists-empty")
             if let first = playlists?.first {
@@ -53,6 +54,20 @@ enum SnapshotTour {
             }
             model.select(.mine)
             await shot("6c-my-playlists")
+            // Folders: one holding the copy, one empty, and a playlist in none.
+            if let copy = model.myPlaylists.first, let second = playlists?.dropFirst().first {
+                await model.copyToMine(second).value
+                model.select(.mine)
+                model.createFolder(named: "Road Trips", moving: copy)
+                model.createFolder(named: "Workouts")
+                await shot("6d-my-playlists-folders", wait: 1.0)
+                model.navigate(.playlist(copy))
+                await shot("6e-my-playlist-in-folder")
+                model.collapsedFolders.insert(model.myFolders.first { $0.name == "Road Trips" }?.id ?? "")
+                model.select(.mine)
+                await shot("6f-my-playlists-folder-closed")
+                model.collapsedFolders = []
+            }
 
             model.palette.present()
             await shot("7-palette-commands", wait: 1.2)

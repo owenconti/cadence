@@ -37,9 +37,10 @@ enum ArtworkAudit {
     /// Whether this copy syncs My Playlists with the user's iCloud, end to
     /// end: makes a throwaway playlist, renames it straight away (a second
     /// save must carry the first's change tag, or iCloud refuses it), syncs,
-    /// deletes it and syncs again. Its sync state and playlists stay in the
-    /// audit folder, not the app's. Fails if the Playlist record type isn't
-    /// deployed to the container's Production schema.
+    /// files it in a throwaway folder and syncs, then deletes both, syncing
+    /// each. Its sync state and playlists stay in the audit folder, not the
+    /// app's. Fails if the Playlist and Folder record types (and Playlist's
+    /// folder field) aren't deployed to the container's Production schema.
     private static func cloudCheck(_ dir: URL) async -> String {
         guard let container = CloudStore.containerIdentifier else {
             return "off  iCloud: this copy isn't signed for it (no container in its profile yet)"
@@ -49,6 +50,7 @@ enum ArtworkAudit {
         let playlists = CadencePlaylists(name: "playlists", directory: folder)
         playlists.cloud = cloud
         cloud.register(playlists)
+        cloud.register(playlists.folderRecords)
         cloud.start()
         func settled() async -> String? {
             for _ in 0..<60 {
@@ -74,10 +76,25 @@ enum ArtworkAudit {
             return (lines + ["FAIL iCloud: My Playlists didn't sync (\(problem)); is Support/CloudKit/schema.ckdb deployed to Production?"]).joined(separator: "\n")
         }
         lines.append("ok   iCloud: a playlist made and renamed straight away syncs")
+
+        let checkFolder = playlists.createFolder(named: "Cadence check folder")
+        playlists.move(made.id, to: checkFolder.id)
+        await cloud.sync()
+        if let problem = await settled() {
+            playlists.deleteFolder(checkFolder.id)
+            playlists.delete(made.id)
+            await cloud.sync()
+            return (lines + ["FAIL iCloud: folders didn't sync (\(problem)); is Support/CloudKit/schema.ckdb (Folder, Playlist.folder) deployed to Production?"]).joined(separator: "\n")
+        }
+        lines.append("ok   iCloud: a folder, and a playlist moved into it, sync")
+        playlists.deleteFolder(checkFolder.id)
+        await cloud.sync()
+        if let problem = await settled() { return (lines + ["FAIL iCloud: deleting a folder didn't sync (\(problem))"]).joined(separator: "\n") }
+        lines.append("ok   iCloud: deleting it syncs")
         playlists.delete(made.id)
         await cloud.sync()
         if let problem = await settled() { return (lines + ["FAIL iCloud: deleting a playlist didn't sync (\(problem))"]).joined(separator: "\n") }
-        lines.append("ok   iCloud: deleting it syncs")
+        lines.append("ok   iCloud: deleting the playlist syncs")
         return lines.joined(separator: "\n")
     }
 
