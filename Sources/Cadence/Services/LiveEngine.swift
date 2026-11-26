@@ -33,6 +33,9 @@ protocol LiveEngine: AnyObject {
     /// their present offsets (0 is the entry right after the current one).
     /// False if the engine's upcoming entries don't line up with `order`.
     func reorderUpcoming(_ order: [Int]) -> Bool
+    /// Removes entries after the current one, by offset (0 is the entry right
+    /// after it). False, removing nothing, if it doesn't have `count` of them.
+    func removeUpcoming(_ offsets: [Int], of count: Int) -> Bool
     /// Where the engine is: its current entry's place among its entries,
     /// how many it has, and the song's title and artist.
     var currentEntry: (position: Int, count: Int, title: String, artist: String?)? { get }
@@ -97,6 +100,19 @@ final class MusicKitEngine: LiveEngine {
         let upcoming = Array(entries[next...])
         guard upcoming.count == order.count, Set(order) == Set(upcoming.indices) else { return false }
         entries.replaceSubrange(next..., with: order.map { upcoming[$0] })
+        player.queue.entries = entries
+        return true
+    }
+
+    func removeUpcoming(_ offsets: [Int], of count: Int) -> Bool {
+        var entries = player.queue.entries
+        guard let current = player.queue.currentEntry,
+              let at = entries.firstIndex(where: { $0.id == current.id }) else { return false }
+        let next = entries.index(after: at)
+        guard entries.distance(from: next, to: entries.endIndex) == count, offsets.allSatisfy((0 ..< count).contains) else { return false }
+        for offset in Set(offsets).sorted(by: >) {
+            entries.remove(at: entries.index(next, offsetBy: offset))
+        }
         player.queue.entries = entries
         return true
     }
@@ -239,6 +255,12 @@ final class SimulatedEngine: LiveEngine {
         let upcoming = Array(entries[(index + 1)...])
         guard upcoming.count == order.count, Set(order) == Set(upcoming.indices) else { return false }
         entries.replaceSubrange((index + 1)..., with: order.map { upcoming[$0] })
+        return true
+    }
+
+    func removeUpcoming(_ offsets: [Int], of count: Int) -> Bool {
+        guard let index, entries.count - index - 1 == count, offsets.allSatisfy((0 ..< count).contains) else { return false }
+        for offset in Set(offsets).sorted(by: >) { entries.remove(at: index + 1 + offset) }
         return true
     }
 

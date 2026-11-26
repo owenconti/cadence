@@ -25,7 +25,8 @@ import notify
 ///   first line, then reports that number as `ran`. Steps: `sim prepare=2
 ///   play=0 insert=2 refuse=1` (the simulated engine's delays in seconds, and
 ///   whether it refuses songs), `play-playlist N [shuffled]`, `pick N I` (song I
-///   of playlist N, keeping shuffle as it is), `add-to-queue N I` (song I
+///   of playlist N, keeping shuffle as it is), `move-up-next FROM TO` and
+///   `remove-up-next N` (rows of Up Next as listed), `add-to-queue N I` (song I
 ///   of playlist N; -1 for the last), `toggle`, `wait S`, `play-duplicates N
 ///   [shuffled]` (A, B, A, C from entry N, shuffle mode on or off),
 ///   `add-to-playlist N I P` (song I of playlist N, to playlist P), `tempo N`
@@ -321,6 +322,13 @@ enum CheckHooks {
             guard words.count > 2, let target = model.playlists.first(where: { $0.name == words[1] }),
                   let tracks = try? await model.tracks(in: target) else { return }
             model.saveTracks(words[2] == "reverse" ? tracks.reversed() : Array(tracks.dropFirst()), of: target)
+        case "move-up-next":
+            // move-up-next FROM TO: as dragging a row of Up Next (as listed) does.
+            guard words.count > 2, let from = Int(words[1]), let to = Int(words[2]) else { return }
+            model.player.moveUpNext(fromOffsets: [from], toOffset: to)
+        case "remove-up-next":
+            guard words.count > 1, let place = Int(words[1]) else { return }
+            model.player.removeUpNext(atOffsets: [place])
         case "toggle":
             model.player.toggle()
         case "tempo":

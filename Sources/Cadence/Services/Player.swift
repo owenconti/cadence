@@ -116,6 +116,13 @@ final class Player {
         return queue.indices.dropFirst(index + 1).filter { queuedKeys.contains(keys[$0]) }
     }
 
+    /// Up Next as listed, as places in `queue`: while shuffled, only the
+    /// songs you queued (the rest has no set order); otherwise everything.
+    var shownUpNext: [Int] {
+        guard let index else { return [] }
+        return isShuffled ? queuedUpNext : Array(queue.indices.dropFirst(index + 1))
+    }
+
     /// For saving: the songs you queued, as places in `queue`.
     var queuedPositions: [Int] { keys.indices.filter { queuedKeys.contains(keys[$0]) } }
 
@@ -423,6 +430,53 @@ final class Player {
             unshuffled = nil
             unshuffledKeys = nil
             reorderUpcoming(queuedFirst + ordered)
+        }
+    }
+
+    // MARK: Editing Up Next
+
+    /// Moves songs within Up Next as listed (`shownUpNext`), as a list's drag
+    /// does. Songs not listed (the shuffled rest) keep their places.
+    func moveUpNext(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard let index else { return }
+        let rows = shownUpNext
+        var moved = rows
+        moved.move(fromOffsets: source, toOffset: destination)
+        guard moved != rows else { return }
+        let listed = Set(rows)
+        var next = moved.makeIterator()
+        let order = queue.indices.dropFirst(index + 1).map { listed.contains($0) ? next.next()! : $0 }
+        reorderUpcoming(order)
+    }
+
+    /// Takes songs out of Up Next as listed (`shownUpNext`), by their place there.
+    func removeUpNext(atOffsets offsets: IndexSet) {
+        guard let index else { return }
+        let rows = shownUpNext
+        let doomed = offsets.compactMap { rows.indices.contains($0) ? rows[$0] : nil }.sorted(by: >)
+        guard !doomed.isEmpty else { return }
+        let upcoming = queue.count - index - 1
+        let engineOffsets = doomed.map { $0 - (index + 1) }
+        for i in doomed {
+            let key = keys[i]
+            keys.remove(at: i)
+            queue.remove(at: i)
+            queuedKeys.remove(key)
+            if let at = unshuffledKeys?.firstIndex(of: key) {
+                unshuffledKeys?.remove(at: at)
+                unshuffled?.remove(at: at)
+            }
+        }
+        let generation = liveGeneration
+        live { engine in
+            guard generation == self.liveGeneration else { return }
+            if !engine.removeUpcoming(engineOffsets, of: upcoming) {
+                Self.log.error("the player's songs up next don't line up with ours; rebuilding its queue")
+                // It may have moved on a song meanwhile: follow it first.
+                self.syncCurrentEntry()
+                guard let index = self.index else { return }
+                self.startLive(at: index, from: engine.playbackTime)
+            }
         }
     }
 

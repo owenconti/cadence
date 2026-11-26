@@ -142,6 +142,9 @@ struct QueueHeader: View {
     }
 }
 
+/// Up Next: drag a song to move it, and remove one with its ✕ (on hover),
+/// its right-click or long-press menu, or a swipe. Shuffled, it lists only
+/// the songs you queued; the rest shows as a count.
 struct UpNextList: View {
     @Environment(AppModel.self) private var model
 
@@ -151,23 +154,43 @@ struct UpNextList: View {
         if upcoming.isEmpty {
             EmptyNote(symbol: "text.append", title: "Queue is empty", message: "Use “Play Next” or “Add to Queue” on any song.")
         } else {
-            // Shuffled, only the songs you queued have a set order; the rest
-            // is picked as it goes.
-            let rows = player.isShuffled ? player.queuedUpNext : Array(upcoming.indices)
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    // By queue position: the same song can be queued twice.
-                    ForEach(rows, id: \.self) { i in
-                        QueueRow(track: player.queue[i], queueIndex: i)
-                    }
-                    if player.isShuffled, upcoming.count > rows.count {
-                        ShuffledRest(count: upcoming.count - rows.count, source: player.source, afterQueued: !rows.isEmpty)
-                    }
+            let rows = player.shownUpNext
+            // By queue entry: the same song can be queued twice.
+            let entries = rows.enumerated().map { (place: $0.offset, index: $0.element, key: player.keys[$0.element]) }
+            List {
+                ForEach(entries, id: \.key) { entry in
+                    QueueRow(track: player.queue[entry.index], queueIndex: entry.index, place: entry.place)
+                        .upNextRow()
                 }
-                .padding(.vertical, 8)
+                .onMove { player.moveUpNext(fromOffsets: $0, toOffset: $1) }
+                .onDelete { player.removeUpNext(atOffsets: $0) }
+                if player.isShuffled, upcoming.count > rows.count {
+                    ShuffledRest(count: upcoming.count - rows.count, source: player.source, afterQueued: !rows.isEmpty)
+                        .upNextRow()
+                        .moveDisabled(true)
+                        .deleteDisabled(true)
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .scrollIndicators(.never)
+            .environment(\.defaultMinListRowHeight, 0)
+            .padding(.vertical, 6)
+            #if os(macOS)
+            // A Mac list insets its rows on both sides; this lines them up
+            // with the header, as before it was a list.
+            .padding(.horizontal, -8)
+            #endif
         }
+    }
+}
+
+private extension View {
+    /// A list row drawn as the panel's own: no inset, separator or background.
+    func upNextRow() -> some View {
+        listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 
@@ -203,6 +226,8 @@ private struct QueueRow: View {
     @Environment(AppModel.self) private var model
     let track: TrackItem
     let queueIndex: Int
+    /// Its place in Up Next as listed.
+    let place: Int
     @State private var hovering = false
 
     var body: some View {
@@ -215,14 +240,58 @@ private struct QueueRow: View {
             }
             .lineLimit(1)
             Spacer(minLength: 0)
-            Text(track.duration.clock).font(.system(size: 11).monospacedDigit()).foregroundStyle(Theme.tertiary)
+            ZStack(alignment: .trailing) {
+                Text(track.duration.clock).font(.system(size: 11).monospacedDigit()).foregroundStyle(Theme.tertiary)
+                    .opacity(hovering ? 0 : 1)
+                if hovering {
+                    RemoveFromUpNext(title: track.title) { remove() }
+                }
+            }
+            .frame(width: 32, alignment: .trailing)
         }
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        .padding(.trailing, 4)
         .frame(height: 44)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? Theme.card : .clear))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { model.player.jump(toQueueIndex: queueIndex) }
-        .contextMenu { TrackMenu(track: track) }
+        .contextMenu {
+            Button("Play Now", systemImage: "play.fill") { model.player.jump(toQueueIndex: queueIndex) }
+            if place > 0 {
+                Button("Move to Top", systemImage: "arrow.up.to.line") {
+                    model.player.moveUpNext(fromOffsets: [place], toOffset: 0)
+                }
+            }
+            Button("Remove from Up Next", systemImage: "minus.circle", role: .destructive) { remove() }
+            Divider()
+            TrackMenu(track: track)
+        }
+    }
+
+    private func remove() {
+        model.player.removeUpNext(atOffsets: [place])
+    }
+}
+
+/// A queued song's ✕: its whole square takes the click, lit under the pointer.
+private struct RemoveFromUpNext: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(hovering ? Theme.text : Theme.secondary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(hovering ? Theme.cardHover : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Remove from Up Next")
+        .accessibilityLabel("Remove \(title) from Up Next")
     }
 }

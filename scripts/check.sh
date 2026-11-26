@@ -193,6 +193,23 @@ open -g -n --env CADENCE_CHECK_DIR="$OUT" "$APP"; sleep 5
 [[ "$(state queuedIDs)" == "$queued" ]] || fail "quitting forgot the queued songs: '$(state queuedIDs)' instead of '$queued'"
 echo "ok   shuffled, songs added to the queue play next, through picking another song, shuffle off and on, and quitting"
 
+# Up Next can be reordered and pruned: shuffled (the songs you queued) and not
+# (everything after the current song), the player's queue following along.
+first=${queued%%,*}; second=${queued#*,}
+steps "move-up-next 1 0" "wait 0.3" || fail "steps didn't run"
+[[ "$(state queuedIDs)" == "$second,$first" ]] || fail "moving the second queued song up gave '$(state queuedIDs)', not '$second,$first'"
+in_step "moving a queued song"
+steps "remove-up-next 0" "wait 0.3" || fail "steps didn't run"
+[[ "$(state queuedIDs)" == "$first" && "$(state upNextAll)" == "$first"* ]] || fail "removing a queued song left '$(state queuedIDs)'"
+in_step "removing a queued song"
+steps "play-playlist 0" "wait 1" || fail "steps didn't run"
+before=$(state upNextAll)
+expected=$(python3 -c "ids='$before'.split(','); ids.pop(0); ids.insert(0, ids.pop(2)); print(','.join(ids))")
+steps "remove-up-next 0" "wait 0.3" "move-up-next 2 0" "wait 0.3" || fail "steps didn't run"
+[[ "$(state upNextAll)" == "$expected" ]] || fail "removing and moving songs in Up Next gave $(state upNextAll), not $expected"
+in_step "editing Up Next in order"
+echo "ok   Up Next songs can be moved and removed, shuffled or not, and the player follows"
+
 # The player's timing paths, with the simulated engine slowed down or
 # refusing, as Apple Music can be.
 steps "sim prepare=2" "play-playlist 0" "toggle" "wait 3" "sim prepare=0" || fail "steps didn't run"
