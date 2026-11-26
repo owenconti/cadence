@@ -244,6 +244,15 @@ steps "wait 5" "sim insert=0" || fail "steps didn't run"
 in_step "slow add"
 echo "ok   the position keeps moving while a slow add is under way"
 
+# Apple Music can refuse to start partway through a queue ("unexpected start
+# item"); Cadence then starts at that song without the ones before it.
+steps "sim refusestart=1" "play-duplicates 2" "wait 1" "sim refusestart=0" || fail "steps didn't run"
+[[ "$(state index)" == 0 && "$(state queue)" == 2 ]] || fail "a refused start didn't start at the song without those before it: index $(state index) of $(state queue)"
+[[ "$(state playingNow)" == True && "$(state enginePlaying)" == True ]] || fail "after a refused start, nothing played"
+[[ "$(state notice)" == "" ]] || fail "a refused start that was recovered from still showed '$(state notice)'"
+in_step "refused start"
+echo "ok   when the player won't start partway through a queue, it starts at that song without the ones before it"
+
 until_state play-duplicates index 2 || fail "couldn't play a queue with a song in it twice"
 sleep 1
 [[ "$(state engineIndex)" == 2 ]] || fail "the player started at its entry $(state engineIndex), not the second copy (2)"

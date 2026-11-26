@@ -23,8 +23,9 @@ import notify
 /// - `select-artists`: goes to Artists.
 /// - `run`: runs the steps in `run.txt` in order, once per number on its
 ///   first line, then reports that number as `ran`. Steps: `sim prepare=2
-///   play=0 insert=2 refuse=1` (the simulated engine's delays in seconds, and
-///   whether it refuses songs), `play-playlist N [shuffled]`, `pick N I` (song I
+///   play=0 insert=2 refuse=1 refusestart=1` (the simulated engine's delays in
+///   seconds, whether it refuses songs, and whether it refuses to start
+///   partway through a queue), `play-playlist N [shuffled]`, `pick N I` (song I
 ///   of playlist N, keeping shuffle as it is), `move-up-next FROM TO` and
 ///   `remove-up-next N` (rows of Up Next as listed), `add-to-queue N I` (song I
 ///   of playlist N; -1 for the last), `toggle`, `wait S`, `play-duplicates N
@@ -280,6 +281,7 @@ enum CheckHooks {
                 case "play": engine.delays.play = .milliseconds(Int(value * 1000))
                 case "insert": engine.delays.insert = .milliseconds(Int(value * 1000))
                 case "refuse": engine.refuseInserts = value != 0
+                case "refusestart": engine.refuseStart = value != 0
                 default: break
                 }
             }

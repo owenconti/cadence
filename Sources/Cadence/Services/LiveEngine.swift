@@ -36,6 +36,9 @@ protocol LiveEngine: AnyObject {
     /// Removes entries after the current one, by offset (0 is the entry right
     /// after it). False, removing nothing, if it doesn't have `count` of them.
     func removeUpcoming(_ offsets: [Int], of count: Int) -> Bool
+    /// Whether a failed `prepare` was the engine refusing to start partway
+    /// through its queue, which starting at its first entry avoids.
+    func refusedStart(_ error: Error) -> Bool
     /// Where the engine is: its current entry's place among its entries,
     /// how many it has, and the song's title and artist.
     var currentEntry: (position: Int, count: Int, title: String, artist: String?)? { get }
@@ -57,7 +60,15 @@ final class MusicKitEngine: LiveEngine {
             entries.append(entry)
             if i >= start, first == nil { first = entry }
         }
-        player.queue = ApplicationMusicPlayer.Queue(entries, startingAt: first)
+        // Naming a start entry only when it isn't the first: Apple Music
+        // can refuse a named one ("Prepare queue failed with unexpected start
+        // item"), as with a song queued twice in a row.
+        player.queue = ApplicationMusicPlayer.Queue(entries, startingAt: first?.id == entries.first?.id ? nil : first)
+    }
+
+    func refusedStart(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == "MPMusicPlayerControllerErrorDomain" && error.code == 6
     }
 
     func prepare() async throws { try await player.prepareToPlay() }
@@ -128,11 +139,13 @@ final class MusicKitEngine: LiveEngine {
 enum EngineError: LocalizedError {
     case notInAppleMusic
     case refused
+    case refusedStart
 
     var errorDescription: String? {
         switch self {
         case .notInAppleMusic: "Apple Music doesn't have it"
         case .refused: "The player refused it"
+        case .refusedStart: "The player wouldn't start partway through its queue"
         }
     }
 }
@@ -149,6 +162,9 @@ final class SimulatedEngine: LiveEngine {
 
     var delays = Delays()
     var refuseInserts = false
+    /// Refuses to prepare a queue that starts after its first entry, as
+    /// Apple Music sometimes does.
+    var refuseStart = false
     private(set) var entries: [TrackItem] = []
     private(set) var index: Int?
     private var playing = false
@@ -169,6 +185,11 @@ final class SimulatedEngine: LiveEngine {
 
     func prepare() async throws {
         try await Task.sleep(for: delays.prepare)
+        if refuseStart, let index, index > 0 { throw EngineError.refusedStart }
+    }
+
+    func refusedStart(_ error: Error) -> Bool {
+        if case EngineError.refusedStart = error { true } else { false }
     }
 
     func play() async throws {

@@ -629,10 +629,33 @@ final class Player {
                 if self.wantsPlaying { try await engine.play() } else { engine.pause() }
                 self.appliedRate = nil
                 self.applyRate()
+            } catch where start > 0 && engine.refusedStart(error) && generation == self.liveGeneration {
+                // Apple Music wouldn't start partway through (it can refuse
+                // a song queued twice in a row): start at the song itself,
+                // without the ones before it.
+                Self.log.error("the player wouldn't start at entry \(start, privacy: .public); starting there without the songs before it")
+                self.dropHistory(before: start)
+                self.startLive(at: 0, from: position)
             } catch {
                 Self.log.error("couldn't start playing: \(error.localizedDescription, privacy: .public)")
                 self.report(error.localizedDescription)
             }
+        }
+    }
+
+    /// Forgets the songs before `start` (already played, or skipped past),
+    /// so the queue begins with the current song.
+    private func dropHistory(before start: Int) {
+        guard start > 0, start <= queue.count else { return }
+        let dropped = Set(keys[..<start])
+        keys.removeFirst(start)
+        queue.removeFirst(start)
+        index = index.map { max($0 - start, 0) }
+        queuedKeys.subtract(dropped)
+        if let order = unshuffledKeys {
+            let kept = order.indices.filter { !dropped.contains(order[$0]) }
+            unshuffledKeys = kept.map { order[$0] }
+            unshuffled = unshuffled.map { list in kept.map { list[$0] } }
         }
     }
 
