@@ -55,8 +55,7 @@ final class Player {
     private(set) var isShuffled = false
     /// Songs queued with Play Next or Add to Queue, by key. While shuffled
     /// they play before the rest of the list, in the order they were queued,
-    /// stay queued when another song is picked, and are all Up Next shows:
-    /// the rest has no order worth showing.
+    /// and stay queued when another song is picked or shuffle is toggled.
     private(set) var queuedKeys: Set<Int> = []
     /// The queue's own order, to return to when shuffle is turned off.
     @ObservationIgnored private(set) var unshuffled: [TrackItem]?
@@ -116,11 +115,11 @@ final class Player {
         return queue.indices.dropFirst(index + 1).filter { queuedKeys.contains(keys[$0]) }
     }
 
-    /// Up Next as listed, as places in `queue`: while shuffled, only the
-    /// songs you queued (the rest has no set order); otherwise everything.
+    /// Up Next as listed, as places in `queue`: every song still to come
+    /// (shuffled, the songs you queued are first).
     var shownUpNext: [Int] {
         guard let index else { return [] }
-        return isShuffled ? queuedUpNext : Array(queue.indices.dropFirst(index + 1))
+        return Array(queue.indices.dropFirst(index + 1))
     }
 
     /// For saving: the songs you queued, as places in `queue`.
@@ -436,7 +435,7 @@ final class Player {
     // MARK: Editing Up Next
 
     /// Moves songs within Up Next as listed (`shownUpNext`), as a list's drag
-    /// does. Songs not listed (the shuffled rest) keep their places.
+    /// does. Songs not listed keep their places.
     func moveUpNext(fromOffsets source: IndexSet, toOffset destination: Int) {
         guard let index else { return }
         let rows = shownUpNext

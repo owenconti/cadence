@@ -143,8 +143,8 @@ struct QueueHeader: View {
 }
 
 /// Up Next: drag a song to move it, and remove one with its ✕ (on hover),
-/// its right-click or long-press menu, or a swipe. Shuffled, it lists only
-/// the songs you queued; the rest shows as a count.
+/// its right-click or long-press menu, or a swipe. Shuffled, the songs you
+/// queued come first, then the rest in the order they'll play.
 struct UpNextList: View {
     @Environment(AppModel.self) private var model
 
@@ -164,12 +164,6 @@ struct UpNextList: View {
                 }
                 .onMove { player.moveUpNext(fromOffsets: $0, toOffset: $1) }
                 .onDelete { player.removeUpNext(atOffsets: $0) }
-                if player.isShuffled, upcoming.count > rows.count {
-                    ShuffledRest(count: upcoming.count - rows.count, source: player.source, afterQueued: !rows.isEmpty)
-                        .upNextRow()
-                        .moveDisabled(true)
-                        .deleteDisabled(true)
-                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -191,34 +185,6 @@ private extension View {
         listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
-    }
-}
-
-/// Stands in for the shuffled songs after any you queued: how many, and from where.
-private struct ShuffledRest: View {
-    let count: Int
-    let source: QueueSource?
-    let afterQueued: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "shuffle")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 34, height: 34)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Theme.card))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(afterQueued ? "Then " : "")\(count) \(count == 1 ? "song" : "songs") shuffled")
-                    .font(.system(size: 12.5, weight: .medium))
-                Text(source.map { "From \($0.title)" } ?? "Each picked as it comes")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
-            }
-            .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 44)
-        .accessibilityElement(children: .combine)
     }
 }
 
