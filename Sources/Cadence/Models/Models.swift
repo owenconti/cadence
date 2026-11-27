@@ -276,6 +276,8 @@ enum Route: Hashable {
     case playlist(PlaylistItem)
     case album(AlbumItem)
     case artist(ArtistItem)
+    /// A song's other versions: clean or explicit, live, acoustic, remixed.
+    case versions(TrackItem)
 }
 
 extension TimeInterval {

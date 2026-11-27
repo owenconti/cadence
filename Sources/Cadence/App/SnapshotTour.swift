@@ -38,6 +38,17 @@ enum SnapshotTour {
             await shot("4-artists")
             if let artist = try? await model.provider.artists().first { model.navigate(.artist(artist)) }
             await shot("5-artist")
+            // A song's other versions: an explicit one, then one with no clean twin.
+            var explicitSong: TrackItem?
+            for playlist in playlists ?? [] where explicitSong == nil {
+                explicitSong = try? await model.provider.tracks(in: playlist).first(where: \.isExplicit)
+            }
+            if let explicitSong {
+                model.navigate(.versions(explicitSong))
+                await shot("5a-versions-explicit")
+                model.navigate(.versions(DemoVersion.live.version(of: explicitSong)))
+                await shot("5b-versions-live")
+            }
 
             model.select(.playlists)
             await shot("6-playlists")

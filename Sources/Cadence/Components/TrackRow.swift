@@ -172,6 +172,9 @@ struct TrackMenu: View {
         if !track.albumTitle.isEmpty {
             Button("Go to Album", systemImage: "square.stack") { model.openAlbum(of: track) }
         }
+        Button(track.isExplicit ? "Clean & Other Versions" : "Other Versions", systemImage: "square.on.square") {
+            model.openVersions(of: track)
+        }
     }
 }
 

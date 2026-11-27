@@ -112,6 +112,7 @@ enum ArtworkAudit {
         }
         // A request that fails would quietly leave its surface untested.
         var problems: [String] = []
+        var versionLines: [String] = []
         func fetch<T>(_ what: String, _ work: () async throws -> T) async -> T? {
             do { return try await work() } catch {
                 problems.append("FAIL couldn't load \(what): \(error.localizedDescription)")
@@ -189,6 +190,37 @@ enum ArtworkAudit {
             for playlist in results.playlists { add("Search", playlist.name, playlist.artwork) }
         }
 
+        // Other Versions pages: a song known to have a clean version (on its
+        // album's other edition) must find it, and the library's explicit
+        // songs are listed with what they found.
+        var known = MusicCatalogSearchRequest(term: "HUMBLE. Kendrick Lamar", types: [Song.self])
+        known.limit = 10
+        if let song = await fetch("HUMBLE. from the catalog", { try await known.response().songs })?
+            .first(where: { $0.title == "HUMBLE." && $0.albumTitle == "DAMN." }) {
+            let track = TrackItem(song: song)
+            if let versions = await fetch("the other versions of HUMBLE.", { try await provider.versions(of: track) }) {
+                addTracks("Other versions", versions.counterparts + versions.others.prefix(4))
+                if versions.counterparts.contains(where: { $0.title == "HUMBLE." && $0.isExplicit != track.isExplicit }) {
+                    versionLines.append("ok   Other Versions: HUMBLE. finds its \(track.isExplicit ? "clean" : "explicit") version on DAMN.'s other edition")
+                } else {
+                    problems.append("FAIL Other Versions: HUMBLE. didn't find its \(track.isExplicit ? "clean" : "explicit") version"
+                        + " (found \(versions.counterparts.map(\.title)) and \(versions.others.map(\.title)))")
+                }
+            }
+        } else {
+            problems.append("FAIL Other Versions: couldn't find HUMBLE. (DAMN.) in the catalog to test with")
+        }
+        var explicitSongs: [TrackItem] = []
+        for track in (restored?.tracks ?? []) + songs where track.isExplicit && !explicitSongs.contains(where: { $0.title == track.title }) {
+            explicitSongs.append(track)
+            if explicitSongs.count == 4 { break }
+        }
+        for track in explicitSongs {
+            guard let versions = await fetch("the other versions of \(track.title)", { try await provider.versions(of: track) }) else { continue }
+            addTracks("Other versions", versions.counterparts + versions.others.prefix(4))
+            versionLines.append("     versions of \(track.title) – \(track.artistName): \(versions.counterparts.count) clean, \(versions.others.count) other")
+        }
+
         // The queue brought back after a relaunch, after its artwork refresh.
         var control: ArtworkSource?
         if let restored {
@@ -263,6 +295,7 @@ enum ArtworkAudit {
             failures.append("FAIL control drew in the app's artwork view: it can't tell artwork from its placeholder")
         }
         lines.append("     app's artwork view: \(viewChecked) samples across every surface, at row and card sizes")
+        lines += versionLines
 
         // The controls must not draw, or a blank result means nothing: a song
         // saved to disk by an earlier session, and an album reached through
@@ -324,7 +357,7 @@ enum ArtworkAudit {
 
         // Every surface must have been tested, or a PASS means little.
         var required = ["Discover: Jump back in", "Discover: Trending", "Discover: New releases", "Playlists", "Playlist songs", "Album pages", "Album songs", "Artists", "Artist pages",
-                        "Artist top songs", "Search", "Restored queue"]
+                        "Artist top songs", "Search", "Other versions", "Restored queue"]
         if restored == nil { required.removeAll { $0 == "Restored queue" } }
         for surface in required where !items.contains(where: { $0.surface.hasPrefix(surface) }) {
             failures.append("FAIL nothing tested for \(surface)")

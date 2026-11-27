@@ -46,4 +46,8 @@ protocol MusicProvider: AnyObject {
 
     /// Where a song's tempo is kept and how to measure it.
     func tempoSource(for track: TrackItem) async -> TempoSource
+
+    /// The song's other versions in the catalog: its clean or explicit
+    /// counterpart, and live, acoustic, remixed or edited takes.
+    func versions(of track: TrackItem) async throws -> SongVersions
 }

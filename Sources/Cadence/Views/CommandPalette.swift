@@ -371,6 +371,11 @@ struct CommandPalette: View {
                     model.openAlbum(of: track)
                 })
             }
+            list.append(.init(id: "go:versions", group: "Go to", title: track.isExplicit ? "Clean & other versions of current song" : "Other versions of current song",
+                              subtitle: track.title, symbol: "square.on.square",
+                              keywords: "versions clean explicit radio edit safe censored live acoustic remix alternate") {
+                model.openVersions(of: track)
+            })
             list.append(.init(id: "cmd:add-to-playlist", group: "Playback", title: "Add current song to a playlist…", subtitle: track.title,
                               symbol: "text.badge.plus", keywords: "playlist save add song track new create") {
                 model.palette.choosePlaylist(for: track)

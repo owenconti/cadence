@@ -45,6 +45,7 @@ struct PhoneShell: View {
         case .playlist(let playlist): PhonePlaylistPage(playlist: playlist)
         case .album(let album): PhoneAlbumPage(album: album)
         case .artist(let artist): PhoneArtistPage(artist: artist)
+        case .versions(let track): PhoneVersionsPage(track: track)
         }
     }
 }

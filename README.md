@@ -75,6 +75,10 @@ Now Playing shows the song's tempo in beats per minute, with − and + to slow i
 
 On iPhone and iPad, the crossfade button in Now Playing (the Now panel's header on a full-width iPad) fades each song into the next over 3, 5, 8, 10 or 12 seconds, or turns it off. It's kept on the device. It uses the player transitions Apple added in iOS 18 (`ApplicationMusicPlayer.transition`), which the Mac's MusicKit doesn't have, so the Mac doesn't offer it.
 
+## Other Versions
+
+A song's ⋯ and right-click menus (and long-press on iPhone and iPad), the Playback menu and ⌘K open its **Other Versions** page: its clean version when it's explicit (or its explicit one when it's clean), then live, acoustic, remixed, demo and re-recorded takes by the same artist. `Services/SongVersions.swift` decides what counts. Candidates come from the other editions of the song's album (where Apple keeps clean and explicit editions, so the twin is reliably there) and a catalog search for its title and lead artist. One is the same song when its title matches once bracketed notes, a " - " suffix and featured artists are taken out, and it shares a lead artist, so covers are left out. Another copy of the same recording (same ISRC, or same title, rating and length) isn't listed again, and neither are DJ-mix excerpts or commentary tracks. A version counts as the clean or explicit twin only if it's the other rating, isn't a live, acoustic, remix or similar take, and is within 20 seconds of the song's length (or says it's a radio edit). Many songs have no clean version in Apple Music, and the page says so. `make artwork` requires HUMBLE. to find its twin on DAMN.'s other edition.
+
 ## Code map
 
 - `Services/MusicProvider.swift`: the protocol the UI depends on
@@ -83,6 +87,7 @@ On iPhone and iPad, the crossfade button in Now Playing (the Now panel's header 
 - `Services/DemoProvider.swift`: offline catalog
 - `Services/Player.swift`: the queue and what should play; commands reach the engine one at a time, in order
 - `Services/TempoDetector.swift`, `Services/TempoStore.swift`: songs' measured tempos and the speed chosen for each
+- `Services/SongVersions.swift`: which catalog songs are another version of a song (Other Versions)
 - `Services/LiveEngine.swift`: what plays it: Apple Music (`MusicKitEngine`) or `SimulatedEngine` for the demo library, which `make check` also slows down or makes refuse songs
 - `App/AppUpdate.swift`: notices a newer build on disk, and Restart app with its playback handoff
 - `App/RunMode.swift`, `App/CheckHooks.swift`: throwaway copies for `make check` and `make snapshots`

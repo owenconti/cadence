@@ -1171,6 +1171,12 @@ final class AppModel {
         navigate(.artist(ArtistItem(id: id ?? "name:\(name)", name: name, genre: nil, artwork: .none)))
     }
 
+    /// Opens a song's Other Versions page: its clean or explicit version and
+    /// other takes of it.
+    func openVersions(of track: TrackItem) {
+        navigate(.versions(track))
+    }
+
     // MARK: Playback helpers
 
     // MARK: Tempo

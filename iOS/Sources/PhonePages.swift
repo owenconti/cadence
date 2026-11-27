@@ -129,7 +129,7 @@ private struct PhoneQuickTile: View {
 struct PhoneTrackList: View {
     let tracks: [TrackItem]
     var context: [TrackItem]?
-    let source: QueueSource
+    var source: QueueSource?
     var showArtwork = true
 
     var body: some View {

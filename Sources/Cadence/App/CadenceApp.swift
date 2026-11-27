@@ -143,6 +143,9 @@ private struct PlaybackMenuItems: View {
         Button("Original Tempo") { model.resetTempo() }
             .disabled(model.player.current.map { !model.tempo.isAdjusted($0) } ?? true)
         if let track = model.player.current {
+            Button(track.isExplicit ? "Clean & Other Versions of Current Song" : "Other Versions of Current Song") {
+                model.openVersions(of: track)
+            }
             Menu("Add Current Song to Playlist") {
                 Button("New Playlist…") { model.playlistPrompt = .create(with: track) }
                 Button("New Playlist in My Playlists…") { model.playlistPrompt = .createMine(with: track) }

@@ -139,7 +139,31 @@ final class DemoProvider: MusicProvider {
 
     func tracks(withIDs ids: [String]) async throws -> [TrackItem] {
         let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return ids.compactMap { byID[$0] }
+        return ids.compactMap { id in
+            byID[id] ?? DemoVersion.parse(id).flatMap { kind, base in byID[base].map { kind.version(of: $0) } }
+        }
+    }
+
+    /// Made up: an explicit song has a clean version, and every song a live
+    /// and an acoustic one.
+    func versions(of track: TrackItem) async throws -> SongVersions {
+        try await pause(200)
+        let baseID = DemoVersion.parse(track.id)?.base ?? track.id
+        guard let original = library.tracks.first(where: { $0.id == baseID }) else { return SongVersions() }
+        var all = [original]
+        if original.isExplicit { all.append(DemoVersion.clean.version(of: original)) }
+        all += [DemoVersion.live.version(of: original), DemoVersion.acoustic.version(of: original)]
+        var versions = SongVersions()
+        // Only the studio take and its clean edit are each other's counterparts.
+        func isEdit(_ id: String) -> Bool { id == original.id || id.hasSuffix(DemoVersion.clean.suffix) }
+        for version in all where version.id != track.id {
+            if isEdit(version.id), isEdit(track.id), version.isExplicit != track.isExplicit {
+                versions.counterparts.append(version)
+            } else {
+                versions.others.append(version)
+            }
+        }
+        return versions
     }
 
     func search(_ term: String) async throws -> SearchResults {
@@ -153,6 +177,38 @@ final class DemoProvider: MusicProvider {
         )
     }
 
+}
+
+/// The demo library's made-up versions of its songs, under the song's ID
+/// plus a suffix.
+enum DemoVersion: String, CaseIterable {
+    case clean, live, acoustic
+
+    var suffix: String { "~\(rawValue)" }
+
+    static func parse(_ id: String) -> (kind: DemoVersion, base: String)? {
+        allCases.lazy.compactMap { kind in id.hasSuffix(kind.suffix) ? (kind, String(id.dropLast(kind.suffix.count))) : nil }.first
+    }
+
+    func version(of track: TrackItem) -> TrackItem {
+        var version = TrackItem(id: track.id + suffix, title: track.title, artistName: track.artistName, artistID: track.artistID,
+                            albumTitle: track.albumTitle, albumID: track.albumID, duration: track.duration,
+                            artwork: track.artwork, isExplicit: track.isExplicit)
+        switch self {
+        case .clean:
+            version.isExplicit = false
+        case .live:
+            version.title += " (Live)"
+            version.albumTitle += " (Live)"
+            version.duration += 34
+        case .acoustic:
+            version.title += " (Acoustic)"
+            version.albumTitle = "\(track.title) (Acoustic) – Single"
+            version.duration -= 21
+            version.isExplicit = false
+        }
+        return version
+    }
 }
 
 // MARK: - Catalog

@@ -5,11 +5,13 @@ import MusicKit
 enum ProviderError: LocalizedError {
     case tooLong(Int)
     case notEditable
+    case notInCatalog
 
     var errorDescription: String? {
         switch self {
         case .tooLong(let count): "Stopped at \(count) items; that's longer than Cadence shows."
         case .notEditable: "Apple Music doesn't let Cadence change that playlist."
+        case .notInCatalog: "Apple Music's catalog doesn't have this song, so there are no versions to look through."
         }
     }
 }
@@ -261,6 +263,67 @@ final class MusicKitProvider: MusicProvider {
         let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(catalogID))
         let song = try? await request.response().items.first
         return TempoSource(key: catalogID, preview: song?.previewAssets?.first?.url)
+    }
+
+    // MARK: Versions
+
+    func versions(of track: TrackItem) async throws -> SongVersions {
+        guard let song = await Self.catalogSong(for: track) else { throw ProviderError.notInCatalog }
+        let title = SongMatch.title(song.title)
+        let artist = Self.leadArtist(song.artistName)
+        // The album's other editions hold the clean or explicit twin, so
+        // they're the most trusted; a search finds the rest.
+        async let fromAlbums = Self.otherEditionSongs(of: song)
+        async let firstPage = Self.searchSongs("\(title.searchable) \(artist)", offset: 0)
+        async let secondPage = Self.searchSongs("\(title.searchable) \(artist)", offset: 25)
+        let found = await fromAlbums + firstPage + secondPage
+        return SongMatch.versions(of: Self.candidate(song), among: found.map(Self.candidate))
+    }
+
+    private static func candidate(_ song: Song) -> SongMatch.Candidate {
+        SongMatch.Candidate(track: TrackItem(song: song), isClean: song.contentRating == .clean, isrc: song.isrc)
+    }
+
+    /// The first artist in an artist line, as written: "A & B" is A.
+    private static func leadArtist(_ line: String) -> String {
+        var lead = line
+        for separator in [",", " & ", " feat. ", " featuring ", " x ", " with "] {
+            if let range = lead.range(of: separator, options: .caseInsensitive) { lead = String(lead[..<range.lowerBound]) }
+        }
+        return lead.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The song as the catalog has it: itself, or a library song's match.
+    private static func catalogSong(for track: TrackItem) async -> Song? {
+        if !isLibrary(track), let song = track.song, !track.id.hasPrefix("i.") { return song }
+        guard let id = await songRef(for: track).catalogID else { return nil }
+        let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(id))
+        return try? await request.response().items.first
+    }
+
+    /// Songs on the other editions of the song's album (clean and explicit,
+    /// deluxe, remastered).
+    private static func otherEditionSongs(of song: Song) async -> [Song] {
+        guard let album = try? await song.with([.albums]).albums?.first,
+              let editions = try? await album.with([.otherVersions]).otherVersions else { return [] }
+        return await withTaskGroup(of: (Int, [Song]).self) { group in
+            for (i, edition) in editions.prefix(8).enumerated() {
+                group.addTask {
+                    let tracks = (try? await edition.with([.tracks]).tracks) ?? []
+                    return (i, tracks.compactMap { if case .song(let song) = $0 { song } else { nil } })
+                }
+            }
+            var byEdition: [Int: [Song]] = [:]
+            for await (i, songs) in group { byEdition[i] = songs }
+            return byEdition.keys.sorted().flatMap { byEdition[$0] ?? [] }
+        }
+    }
+
+    private static func searchSongs(_ term: String, offset: Int) async -> [Song] {
+        var request = MusicCatalogSearchRequest(term: term, types: [Song.self])
+        request.limit = 25
+        request.offset = offset
+        return (try? await request.response().songs).map(Array.init) ?? []
     }
 
     private static func isLibrary(_ track: TrackItem) -> Bool {

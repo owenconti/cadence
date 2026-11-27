@@ -141,6 +141,7 @@ struct ContentArea: View {
         case .playlist(let playlist): PlaylistDetailView(playlist: playlist)
         case .album(let album): AlbumDetailView(album: album)
         case .artist(let artist): ArtistDetailView(artist: artist)
+        case .versions(let track): VersionsView(track: track)
         }
     }
 }
