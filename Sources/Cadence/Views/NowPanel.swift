@@ -25,6 +25,7 @@ struct NowPanel: View {
             HStack(alignment: .top) {
                 PlayingFrom()
                 Spacer(minLength: 8)
+                AddToPlaylistButton(track: track, size: 28)
                 CrossfadeMenu(size: 28)
                 Button(action: model.toggleNowPlayingMode) {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")

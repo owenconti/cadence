@@ -27,6 +27,11 @@ struct NowPlayingView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 40)
+                    .overlay(alignment: .topTrailing) {
+                        AddToPlaylistButton(track: track, size: 30)
+                            .padding(.trailing, 16)
+                            .padding(.top, 10)
+                    }
 
                     VStack(alignment: .leading, spacing: 14) {
                         PlayingFrom()

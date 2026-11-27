@@ -548,7 +548,8 @@ extension PlaylistItem {
             summary: playlist.shortDescription ?? playlist.standardDescription,
             artwork: ArtworkSource(playlist.artwork),
             trackCount: nil,
-            playlist: playlist
+            playlist: playlist,
+            modifiedAt: playlist.lastModifiedDate
         )
     }
 }

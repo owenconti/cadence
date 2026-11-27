@@ -91,6 +91,8 @@ struct PlaylistItem: Identifiable, Hashable, Sendable {
     var artwork: ArtworkSource
     var trackCount: Int?
     var playlist: Playlist?
+    /// When its songs or name last changed, where that's known.
+    var modifiedAt: Date?
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -142,7 +144,8 @@ struct CadencePlaylist: Codable, Identifiable, Hashable, Sendable {
             curator: "My Playlists",
             summary: copiedFrom.map { "Copied from \($0)" },
             artwork: .generated(seed: seed, style: Int(seed % 6) + 1, palette: DemoLibrary.palette(Int(seed % 97))),
-            trackCount: songs.count
+            trackCount: songs.count,
+            modifiedAt: modifiedAt
         )
     }
 }

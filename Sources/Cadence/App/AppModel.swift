@@ -108,6 +108,9 @@ final class AppModel {
     /// When each playlist was last played from Cadence. Apple Music gives
     /// library playlists no dates.
     private(set) var playlistPlayedAt = UserDefaults.standard.dictionary(forKey: AppModel.playedKey) as? [String: Date] ?? [:]
+    /// When Cadence last made, added to or edited each Apple Music playlist,
+    /// since the library is slow to update (or never gives) its own date.
+    private(set) var playlistChangedAt = UserDefaults.standard.dictionary(forKey: AppModel.changedKey) as? [String: Date] ?? [:]
     /// Names of playlists Apple Music lists as recently played, newest first.
     private(set) var recentPlaylistNames: [String] = []
     /// Covers made from each playlist's songs (`ArtworkSource.mosaic`), by
@@ -184,6 +187,7 @@ final class AppModel {
         return saved > 0 ? saved : value
     }
     private static let playedKey = "cadence.playlistPlayedAt"
+    private static let changedKey = "cadence.playlistChangedAt"
     private static let log = Logger(subsystem: "com.owenconti.cadence", category: "app")
 
     var route: Route { stack.last ?? section.route }
@@ -533,14 +537,34 @@ final class AppModel {
         editablePlaylistIDs = ids
     }
 
-    /// My Playlists, A–Z: any song can be added to them.
-    var addableMine: [PlaylistItem] {
-        myPlaylists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    /// My Playlists, most recently changed first: any song can be added to them.
+    var addableMine: [PlaylistItem] { byLastChange(myPlaylists) }
+
+    /// The Apple Music playlists a song can be added to, most recently changed first.
+    var addablePlaylists: [PlaylistItem] {
+        byLastChange(playlists.filter { editablePlaylistIDs.contains($0.id) })
     }
 
-    /// The playlists a song can be added to, A–Z.
-    var addablePlaylists: [PlaylistItem] {
-        sortedPlaylists(by: .name).filter { editablePlaylistIDs.contains($0.id) }
+    /// When a playlist last changed: its own date, or when Cadence last
+    /// changed it, whichever is later.
+    func lastChange(of playlist: PlaylistItem) -> Date? {
+        [playlist.modifiedAt, playlistChangedAt[playlist.id]].compactMap { $0 }.max()
+    }
+
+    /// Most recently changed (added to, edited, made) first; ones with no
+    /// known date last, A–Z.
+    func byLastChange(_ list: [PlaylistItem]) -> [PlaylistItem] {
+        let dated: [(playlist: PlaylistItem, date: Date)] = list.map { ($0, lastChange(of: $0) ?? .distantPast) }
+        let sorted = dated.sorted { a, b in
+            if a.date != b.date { return a.date > b.date }
+            return a.playlist.name.localizedStandardCompare(b.playlist.name) == .orderedAscending
+        }
+        return sorted.map(\.playlist)
+    }
+
+    private func noteChanged(_ id: String) {
+        playlistChangedAt[id] = Date()
+        UserDefaults.standard.set(playlistChangedAt, forKey: Self.changedKey)
     }
 
     /// Adds a song to the end of one of the user's playlists, and says so.
@@ -580,6 +604,7 @@ final class AppModel {
     /// and the cover catch up. Apple Music's library can take a few seconds
     /// to list the change, so it's looked at again shortly after.
     private func playlistChanged(_ playlist: PlaylistItem) async {
+        if !playlist.isCadence { noteChanged(playlist.id) }
         let provider = self.provider
         let delays = provider.isLive ? [0, 4] : [0]
         for delay in delays {
@@ -887,7 +912,7 @@ final class AppModel {
                 return
             }
             guard provider === self.provider else { return }
-            if let made { createdPlaylistIDs.insert(made.id) }
+            if let made { createdPlaylistIDs.insert(made.id); noteChanged(made.id) }
             show(Toast(text: track.map { "Created \(name) with “\($0.title)”" } ?? "Created \(name)", symbol: "checkmark.circle.fill"))
             // Apple Music's library can take a while to list it.
             for delay in provider.isLive ? [0, 2, 4, 8] : [0] {

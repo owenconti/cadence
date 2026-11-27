@@ -86,14 +86,19 @@ struct AddToMyPlaylistsItems: View {
     let model: AppModel
     let track: TrackItem
 
+    private func newest(in folder: PlaylistFolder) -> Date {
+        model.myPlaylists(in: folder).compactMap { model.lastChange(of: $0) }.max() ?? .distantPast
+    }
+
     var body: some View {
-        let loose = model.myPlaylists(in: nil).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        let folders = model.myFolders.filter { !model.myPlaylists(in: $0).isEmpty }
+        // Most recently changed first, folders by their newest playlist.
+        let loose = model.byLastChange(model.myPlaylists(in: nil))
+        let folders = model.myFolders.filter { !model.myPlaylists(in: $0).isEmpty }.sorted { newest(in: $0) > newest(in: $1) }
         if !loose.isEmpty || !folders.isEmpty {
             Section("My Playlists") {
                 ForEach(folders) { folder in
                     Menu(folder.name, systemImage: "folder") {
-                        ForEach(model.myPlaylists(in: folder).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) { playlist in
+                        ForEach(model.byLastChange(model.myPlaylists(in: folder))) { playlist in
                             Button(playlist.name) { model.add(track, to: playlist) }
                         }
                     }
@@ -137,16 +142,46 @@ struct AddToPlaylistMenu: View {
     var title = "Add to Playlist"
 
     var body: some View {
-        Menu(title, systemImage: "text.badge.plus") {
-            Button("New Playlist…", systemImage: "plus") { model.playlistPrompt = .create(with: track) }
-            Button("New Playlist in My Playlists…", systemImage: "rectangle.stack.badge.plus") { model.playlistPrompt = .createMine(with: track) }
-            AddToMyPlaylistsItems(model: model, track: track)
-            let playlists = model.addablePlaylists
-            if !playlists.isEmpty {
-                Section("Apple Music") {
-                    ForEach(playlists) { playlist in
-                        Button(playlist.name) { model.add(track, to: playlist) }
-                    }
+        Menu(title, systemImage: "text.badge.plus") { AddToPlaylistItems(track: track) }
+    }
+}
+
+/// The Add to Playlist menu as a round icon button, for Now Playing.
+struct AddToPlaylistButton: View {
+    let track: TrackItem
+    var size: CGFloat = 40
+
+    var body: some View {
+        Menu { AddToPlaylistItems(track: track) } label: {
+            Image(systemName: "text.badge.plus")
+                .font(.system(size: size * 0.38, weight: .bold))
+                .foregroundStyle(Theme.text)
+                .frame(width: size, height: size)
+                .background(Circle().fill(.ultraThinMaterial))
+                .contentShape(Circle())
+        }
+        .menuIndicator(.hidden)
+        .menuOrder(.fixed)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Add to Playlist")
+        .accessibilityLabel("Add “\(track.title)” to a playlist")
+    }
+}
+
+private struct AddToPlaylistItems: View {
+    @Environment(AppModel.self) private var model
+    let track: TrackItem
+
+    var body: some View {
+        Button("New Playlist…", systemImage: "plus") { model.playlistPrompt = .create(with: track) }
+        Button("New Playlist in My Playlists…", systemImage: "rectangle.stack.badge.plus") { model.playlistPrompt = .createMine(with: track) }
+        AddToMyPlaylistsItems(model: model, track: track)
+        let playlists = model.addablePlaylists
+        if !playlists.isEmpty {
+            Section("Apple Music") {
+                ForEach(playlists) { playlist in
+                    Button(playlist.name) { model.add(track, to: playlist) }
                 }
             }
         }
