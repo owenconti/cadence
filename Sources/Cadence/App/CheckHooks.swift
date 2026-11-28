@@ -230,6 +230,7 @@ enum CheckHooks {
             "filterText": editableFields(in: NSApp.appWindow?.contentView).filter { !($0 is FocusingTextField) }.map(\.stringValue).joined(),
             "sidebarHidden": model.sidebarHidden,
             "nowPlayingMode": model.nowPlayingMode,
+            "route": "\(model.route)",
             "stallMs": stallMs,
             "stallMsOverall": stallMsOverall,
             "windows": NSApp.windows.map { "\(type(of: $0)) visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height))" },
@@ -343,6 +344,18 @@ enum CheckHooks {
             model.player.setShuffle(shuffled)
             model.play([tracks[0], tracks[1], tracks[0], tracks[2]], startAt: Int(words.count > 1 ? words[1] : "0") ?? 0,
                        from: .playlist(playlist))
+        case "click":
+            // click X Y: a mouse click at a point in the window, in points
+            // from its top-left corner, as the window.png screenshot shows.
+            guard words.count == 3, let x = Double(words[1]), let y = Double(words[2]), let window = NSApp.appWindow else { return }
+            let point = NSPoint(x: x, y: window.frame.height - y)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(event)
+                }
+                try? await Task.sleep(for: .milliseconds(60))
+            }
         case "wait":
             try? await Task.sleep(for: .milliseconds(Int((Double(words.count > 1 ? words[1] : "0") ?? 0) * 1000)))
         default:

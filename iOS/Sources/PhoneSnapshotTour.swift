@@ -93,7 +93,9 @@ enum PhoneSnapshotTour {
             model.palette.present()
             await shot("7-search-empty")
             model.palette.query = "glass"
-            await shot("8-search", wait: 1.6)
+            // Loading rows must fit the screen, not push the page wider.
+            await shot("7a-search-loading", wait: 0.1)
+            await shot("8-search", wait: 1.5)
             model.palette.dismiss()
 
             model.select(.discover)

@@ -108,19 +108,29 @@ struct PhoneNowPlaying: View {
 
     private func titles(_ track: TrackItem) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            // Long-press the title for the song's menu. Only the title: a
+            // context menu takes the taps of any button inside it, which left
+            // the artist name dead.
             HStack(spacing: 6) {
                 Text(track.title)
                     .font(.display(22, .heavy))
                     .lineLimit(1)
                 if track.isExplicit { ExplicitBadge() }
             }
-            Button(track.artistName) { model.openArtist(id: track.artistID, name: track.artistName) }
-                .buttonStyle(.plain)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.secondary)
-                .lineLimit(1)
+            .contentShape(Rectangle())
+            .contextMenu { TrackMenu(track: track) }
+            Button { model.openArtist(id: track.artistID, name: track.artistName) } label: {
+                Text(track.artistName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+                    .lineLimit(1)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, -4)
+            .accessibilityHint("Opens the artist")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contextMenu { TrackMenu(track: track) }
     }
 }

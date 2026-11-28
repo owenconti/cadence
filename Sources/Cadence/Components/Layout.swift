@@ -149,8 +149,10 @@ struct LoadingRows: View {
         .accessibilityHidden(true)
     }
 
+    /// Up to `width` wide: on a narrow screen it gives way, rather than
+    /// pushing the row (and the page) wider than the screen.
     private func bar(_ width: CGFloat, _ height: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3).fill(Theme.card).frame(width: width, height: height)
+        RoundedRectangle(cornerRadius: 3).fill(Theme.card).frame(maxWidth: width).frame(height: height)
     }
 }
 
